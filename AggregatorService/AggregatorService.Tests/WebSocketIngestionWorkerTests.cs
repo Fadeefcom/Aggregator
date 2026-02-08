@@ -6,7 +6,6 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using NSubstitute;
 using System.Diagnostics.Metrics;
-using Xunit;
 
 namespace AggregatorService.Tests.Services;
 
