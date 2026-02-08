@@ -37,22 +37,30 @@ public class TickProcessingService : BackgroundService
             while (_channel.Reader.TryRead(out var tick))
             {
                 var latency = (DateTimeOffset.UtcNow - tick.Timestamp).TotalMilliseconds;
-                _metrics.ProcessingLatency.Record(latency, new KeyValuePair<string, object?>("source", tick.Source));
+                _metrics.ProcessingLatency.Record(
+                    latency,
+                    new KeyValuePair<string, object?>("source", tick.Source));
 
                 if (!_processor.ShouldProcess(tick)) continue;
+
                 tick = _processor.Normalize(tick);
+
                 if (_processor.IsDuplicate(tick)) continue;
 
                 tickBuffer.Add(tick);
 
-                var closedCandle = _processor.UpdateMetricsAndAggregate(tick);
-                if (closedCandle != null)
+                var closedCandles = _processor.UpdateMetricsAndAggregate(tick);
+                foreach (var candle in closedCandles)
                 {
-                    candleBuffer.Add(closedCandle);
-                    _metrics.CandlesGenerated.Add(1, new KeyValuePair<string, object?>("symbol", closedCandle.Symbol));
+                    candleBuffer.Add(candle);
+                    _metrics.CandlesGenerated.Add(
+                        1,
+                        new KeyValuePair<string, object?>("symbol", candle.Symbol));
                 }
 
-                _metrics.TicksProcessed.Add(1, new KeyValuePair<string, object?>("source", tick.Source));
+                _metrics.TicksProcessed.Add(
+                    1,
+                    new KeyValuePair<string, object?>("source", tick.Source));
 
                 if (tickBuffer.Count >= BatchSize)
                 {
@@ -60,7 +68,9 @@ public class TickProcessingService : BackgroundService
                 }
             }
 
-            if (tickBuffer.Count > 0 || candleBuffer.Count > 0 || DateTime.UtcNow - lastStatusSave > _statusSaveInterval)
+            if (tickBuffer.Count > 0 ||
+                candleBuffer.Count > 0 ||
+                DateTime.UtcNow - lastStatusSave > _statusSaveInterval)
             {
                 await SaveDataAsync(tickBuffer, candleBuffer, stoppingToken);
                 await SaveStatusesAsync(stoppingToken);
@@ -69,11 +79,15 @@ public class TickProcessingService : BackgroundService
         }
     }
 
-    private async Task SaveDataAsync(List<Tick> ticks, List<Candle> candles, CancellationToken ct)
+    private async Task SaveDataAsync(
+        List<Tick> ticks,
+        List<Candle> candles,
+        CancellationToken ct)
     {
         if (ticks.Count == 0 && candles.Count == 0) return;
 
         var sw = Stopwatch.StartNew();
+
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
 
@@ -90,6 +104,7 @@ public class TickProcessingService : BackgroundService
         }
 
         await db.SaveChangesAsync(ct);
+
         sw.Stop();
         _metrics.DbWriteDuration.Record(sw.Elapsed.TotalMilliseconds);
     }
@@ -99,12 +114,21 @@ public class TickProcessingService : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
 
-        var sources = new[] { "REST_BINANCE", "WS_KRAKEN", "Exchange_0", "Exchange_1", "Exchange_2" };
+        var sources = new[]
+        {
+            "REST_BINANCE",
+            "WS_KRAKEN",
+            "Exchange_0",
+            "Exchange_1",
+            "Exchange_2"
+        };
 
         foreach (var sourceName in sources)
         {
             var status = _processor.GetSourceStatus(sourceName);
-            var dbStatus = await db.SourceStatuses.FindAsync(new object[] { sourceName }, ct);
+            var dbStatus = await db.SourceStatuses.FindAsync(
+                new object[] { sourceName },
+                ct);
 
             if (dbStatus == null)
             {

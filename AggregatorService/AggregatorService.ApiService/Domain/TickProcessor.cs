@@ -10,6 +10,7 @@ public class TickProcessor : ITickProcessor
 {
     private readonly IMemoryCache _dedupCache;
     private readonly AlertChannel _alertChannel;
+    private readonly IConfiguration _configuration;
 
     private readonly ConcurrentDictionary<string, CandleBuilder> _activeCandles = new();
     private readonly ConcurrentDictionary<string, SourceStatus> _sourceStatuses = new();
@@ -22,17 +23,40 @@ public class TickProcessor : ITickProcessor
         "BTCUSD", "ETHUSD", "SOLUSD"
     };
 
-    public TickProcessor(IMemoryCache memoryCache, AlertChannel alertChannel)
+    private readonly TimeSpan[] _timeFrames = new[]
+    {
+        TimeSpan.FromMinutes(1),
+        TimeSpan.FromMinutes(5),
+        TimeSpan.FromHours(1)
+    };
+
+    public TickProcessor(IMemoryCache memoryCache, AlertChannel alertChannel, IConfiguration configuration)
     {
         _dedupCache = memoryCache;
         _alertChannel = alertChannel;
+        _configuration = configuration;
         InitializeRules();
     }
 
     private void InitializeRules()
     {
-        _alertRules.Add(new PriceThresholdRule("BTCUSD", minPrice: 55000, maxPrice: 65000));
-        _alertRules.Add(new VolumeSpikeRule(multiplier: 3.0m));
+        var rulesSection = _configuration.GetSection("Alerting:Rules");
+        foreach (var ruleConfig in rulesSection.GetChildren())
+        {
+            var type = ruleConfig["Type"];
+            if (string.Equals(type, "Price", StringComparison.OrdinalIgnoreCase))
+            {
+                var symbol = ruleConfig["Symbol"] ?? string.Empty;
+                var min = ruleConfig.GetValue<decimal>("MinPrice");
+                var max = ruleConfig.GetValue<decimal>("MaxPrice");
+                _alertRules.Add(new PriceThresholdRule(symbol, min, max));
+            }
+            else if (string.Equals(type, "Volume", StringComparison.OrdinalIgnoreCase))
+            {
+                var multiplier = ruleConfig.GetValue<decimal>("Multiplier");
+                _alertRules.Add(new VolumeSpikeRule(multiplier));
+            }
+        }
     }
 
     public bool ShouldProcess(Tick tick) => _allowedSymbols.Contains(tick.Symbol);
@@ -51,7 +75,8 @@ public class TickProcessor : ITickProcessor
         _dedupCache.Set(key, true, TimeSpan.FromSeconds(10));
         return false;
     }
-    public Candle? UpdateMetricsAndAggregate(Tick tick)
+
+    public IEnumerable<Candle> UpdateMetricsAndAggregate(Tick tick)
     {
         _lastTicks.TryGetValue(tick.Symbol, out var previousTick);
 
@@ -62,15 +87,20 @@ public class TickProcessor : ITickProcessor
                 _alertChannel.Publish(new Alert(tick.Symbol, reason, tick.Timestamp, "Warning"));
             }
         }
+
         _lastTicks[tick.Symbol] = tick;
 
         UpdateSourceStatus(tick);
-        return ProcessCandle(tick);
+        return ProcessCandles(tick);
     }
 
     public SourceStatus GetSourceStatus(string source)
     {
-        return _sourceStatuses.GetOrAdd(source, s => new SourceStatus { SourceName = s, IsOnline = true });
+        return _sourceStatuses.GetOrAdd(source, s => new SourceStatus
+        {
+            SourceName = s,
+            IsOnline = true
+        });
     }
 
     public IEnumerable<SourceStatus> GetAllSourceStatuses()
@@ -80,7 +110,8 @@ public class TickProcessor : ITickProcessor
 
     private void UpdateSourceStatus(Tick tick)
     {
-        _sourceStatuses.AddOrUpdate(tick.Source,
+        _sourceStatuses.AddOrUpdate(
+            tick.Source,
             new SourceStatus
             {
                 SourceName = tick.Source,
@@ -97,39 +128,60 @@ public class TickProcessor : ITickProcessor
             });
     }
 
-    private Candle? ProcessCandle(Tick tick)
+    private IEnumerable<Candle> ProcessCandles(Tick tick)
     {
-        var bucketTime = new DateTimeOffset(
-            tick.Timestamp.Year, tick.Timestamp.Month, tick.Timestamp.Day,
-            tick.Timestamp.Hour, tick.Timestamp.Minute, 0, TimeSpan.Zero);
+        var closedCandles = new List<Candle>();
 
-        var key = $"{tick.Symbol}_1m";
-
-        var builder = _activeCandles.GetOrAdd(key, _ => new CandleBuilder
+        foreach (var period in _timeFrames)
         {
-            Symbol = tick.Symbol,
-            OpenTime = bucketTime,
-            Period = TimeSpan.FromMinutes(1)
-        });
+            var bucketTime = new DateTimeOffset(
+                tick.Timestamp.Year, tick.Timestamp.Month, tick.Timestamp.Day,
+                tick.Timestamp.Hour, tick.Timestamp.Minute, 0, TimeSpan.Zero);
 
-        if (bucketTime > builder.OpenTime)
-        {
-            var closedCandle = builder.ToCandle();
+            if (period.TotalMinutes >= 60)
+            {
+                bucketTime = new DateTimeOffset(
+                    tick.Timestamp.Year, tick.Timestamp.Month, tick.Timestamp.Day,
+                    tick.Timestamp.Hour, 0, 0, TimeSpan.Zero);
+            }
+            else if (period.TotalMinutes == 5)
+            {
+                var minute = (tick.Timestamp.Minute / 5) * 5;
+                bucketTime = new DateTimeOffset(
+                    tick.Timestamp.Year, tick.Timestamp.Month, tick.Timestamp.Day,
+                    tick.Timestamp.Hour, minute, 0, TimeSpan.Zero);
+            }
 
-            var newBuilder = new CandleBuilder
+            var key = $"{tick.Symbol}_{period.TotalMinutes}";
+
+            var builder = _activeCandles.GetOrAdd(key, _ => new CandleBuilder
             {
                 Symbol = tick.Symbol,
                 OpenTime = bucketTime,
-                Period = TimeSpan.FromMinutes(1)
-            };
-            newBuilder.AddTick(tick);
-            _activeCandles[key] = newBuilder;
+                Period = period
+            });
 
-            return closedCandle;
+            if (bucketTime > builder.OpenTime)
+            {
+                closedCandles.Add(builder.ToCandle());
+
+                var newBuilder = new CandleBuilder
+                {
+                    Symbol = tick.Symbol,
+                    OpenTime = bucketTime,
+                    Period = period
+                };
+
+                newBuilder.AddTick(tick);
+                _activeCandles[key] = newBuilder;
+            }
+            else
+            {
+                builder.AddTick(tick);
+            }
         }
 
-        builder.AddTick(tick);
-        return null;
+        return closedCandles;
     }
 
     private class CandleBuilder
@@ -157,6 +209,7 @@ public class TickProcessor : ITickProcessor
                 Open = tick.Price;
                 _isFirst = false;
             }
+
             High = Math.Max(High, tick.Price);
             Low = Math.Min(Low, tick.Price);
             Close = tick.Price;
@@ -171,12 +224,14 @@ public class TickProcessor : ITickProcessor
         public Candle ToCandle()
         {
             decimal avgPrice = 0;
+
             if (Volume > 0)
                 avgPrice = _totalPV / Volume;
             else if (_count > 0)
                 avgPrice = _sumPrice / _count;
 
             double volatility = 0;
+
             if (_count > 0)
             {
                 double mean = (double)(_sumPrice / _count);
