@@ -7,7 +7,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration.Binder" Version="9.0.12" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\AggregatorService.ApiService.Domain\AggregatorService.ApiService.Domain.csproj" />
+    <ProjectReference Include="..\AggregatorService.ApiService.Infrastructure\AggregatorService.ApiService.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

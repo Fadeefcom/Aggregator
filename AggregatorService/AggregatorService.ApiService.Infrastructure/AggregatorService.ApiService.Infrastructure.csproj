@@ -7,7 +7,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\AggregatorService.ApiService.Application\AggregatorService.ApiService.Application.csproj" />
     <ProjectReference Include="..\AggregatorService.ApiService.Domain\AggregatorService.ApiService.Domain.csproj" />
   </ItemGroup>
 

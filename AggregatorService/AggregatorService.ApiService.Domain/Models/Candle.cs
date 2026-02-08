@@ -6,7 +6,7 @@ namespace AggregatorService.ApiService.Domain.Models;
 public class Candle
 {
     public Guid Id { get; set; }
-    [MaxLength(20)] public string Symbol { get; set; } = string.Empty;
+    public Symbol Symbol { get; private set; }
     public DateTimeOffset OpenTime { get; set; }
     public DateTimeOffset CloseTime { get; set; }
 

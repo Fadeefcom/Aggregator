@@ -8,9 +8,11 @@ public record Symbol
 
     public static Symbol Create(string value)
     {
-        if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("Symbol cannot be empty");
+        if (string.IsNullOrWhiteSpace(value)) 
+            throw new ArgumentException("Symbol cannot be empty");
         return new Symbol(value.ToUpperInvariant());
     }
 
     public static implicit operator string(Symbol s) => s.Value;
+    public override string ToString() => Value;
 }
