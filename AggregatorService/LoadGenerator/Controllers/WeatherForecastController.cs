@@ -1,33 +1,68 @@
 using Microsoft.AspNetCore.Mvc;
+using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
 
-namespace LoadGenerator.Controllers
+namespace LoadGenerator.Controllers;
+
+[ApiController]
+[Route("api/exchange")]
+public class ExchangeController : ControllerBase
 {
-    [ApiController]
-    [Route("[controller]")]
-    public class WeatherForecastController : ControllerBase
+    [HttpGet("ticker/{symbol}")]
+    public IActionResult GetTicker(string symbol)
     {
-        private static readonly string[] Summaries = new[]
+        var tick = new
         {
-            "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
+            Symbol = symbol,
+            Price = (decimal)Random.Shared.Next(60000, 65000),
+            Volume = (decimal)Random.Shared.NextDouble() * 10,
+            Timestamp = DateTimeOffset.UtcNow,
+            Source = "REST_BINANCE"
         };
 
-        private readonly ILogger<WeatherForecastController> _logger;
+        return Ok(tick);
+    }
 
-        public WeatherForecastController(ILogger<WeatherForecastController> logger)
+    [Route("/ws/stream")]
+    public async Task GetStream()
+    {
+        if (HttpContext.WebSockets.IsWebSocketRequest)
         {
-            _logger = logger;
+            using var webSocket = await HttpContext.WebSockets.AcceptWebSocketAsync();
+            await StreamMarketData(webSocket);
         }
-
-        [HttpGet]
-        public IEnumerable<WeatherForecast> Get()
+        else
         {
-            return Enumerable.Range(1, 5).Select(index => new WeatherForecast
+            HttpContext.Response.StatusCode = StatusCodes.Status400BadRequest;
+        }
+    }
+
+    private async Task StreamMarketData(WebSocket webSocket)
+    {
+        var buffer = new byte[1024 * 4];
+
+        while (webSocket.State == WebSocketState.Open)
+        {
+            var tick = new
             {
-                Date = DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-                TemperatureC = Random.Shared.Next(-20, 55),
-                Summary = Summaries[Random.Shared.Next(Summaries.Length)]
-            })
-            .ToArray();
+                Symbol = "BTCUSD",
+                Price = (decimal)Random.Shared.Next(60000, 65000),
+                Volume = (decimal)Random.Shared.NextDouble() * 5,
+                Timestamp = DateTimeOffset.UtcNow,
+                Source = "WS_KRAKEN"
+            };
+
+            var json = JsonSerializer.Serialize(tick);
+            var bytes = Encoding.UTF8.GetBytes(json);
+
+            await webSocket.SendAsync(
+                new ArraySegment<byte>(bytes, 0, bytes.Length),
+                WebSocketMessageType.Text,
+                true,
+                CancellationToken.None);
+
+            await Task.Delay(50);
         }
     }
 }

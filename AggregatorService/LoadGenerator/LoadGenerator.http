@@ -1,6 +1,0 @@
-@LoadGenerator_HostAddress = http://localhost:5098
-
-GET {{LoadGenerator_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###

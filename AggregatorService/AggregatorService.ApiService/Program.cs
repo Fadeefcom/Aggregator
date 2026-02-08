@@ -12,14 +12,17 @@ builder.Services.AddDbContext<TradingDbContext>(options =>
 
 builder.Services.AddControllers();
 builder.Services.AddSingleton<IngestionChannel>();
-builder.Services.AddHostedService<TickProcessingService>();
 
-builder.Services.AddProblemDetails();
-builder.Services.AddOpenApi();
+builder.Services.AddHttpClient("ExchangeClient", client =>
+{
+    client.BaseAddress = new Uri("http://loadgenerator");
+});
+
+builder.Services.AddHostedService<TickProcessingService>();
+builder.Services.AddHostedService<RestPollingWorker>();
+builder.Services.AddHostedService<WebSocketIngestionWorker>();
 
 var app = builder.Build();
-
-app.UseExceptionHandler();
 
 if (app.Environment.IsDevelopment())
 {
@@ -28,7 +31,6 @@ if (app.Environment.IsDevelopment())
         var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
         db.Database.EnsureCreated();
     }
-    app.MapOpenApi();
 }
 
 app.MapDefaultEndpoints();
