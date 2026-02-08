@@ -1,4 +1,6 @@
-﻿namespace AggregatorService.ApiService.Domain.Interfaces;
+﻿using AggregatorService.ApiService.Application.DTOs;
+
+namespace AggregatorService.ApiService.Domain.Interfaces;
 
 public interface INotificationService
 {

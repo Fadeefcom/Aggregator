@@ -1,4 +1,5 @@
-﻿using AggregatorService.ApiService.Application.Interfaces;
+﻿using AggregatorService.ApiService.Application.DTOs;
+using AggregatorService.ApiService.Application.Interfaces;
 using AggregatorService.ApiService.Domain.Interfaces;
 using AggregatorService.ApiService.Domain.Models;
 using AggregatorService.ApiService.Domain.Rules;

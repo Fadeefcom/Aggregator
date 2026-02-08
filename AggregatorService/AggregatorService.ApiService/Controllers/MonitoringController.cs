@@ -1,6 +1,5 @@
-﻿using AggregatorService.ApiService.Data;
+﻿using AggregatorService.ApiService.Domain.Interfaces;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace AggregatorService.ApiService.Controllers;
 
@@ -8,25 +7,25 @@ namespace AggregatorService.ApiService.Controllers;
 [Route("api/monitoring")]
 public class MonitoringController : ControllerBase
 {
-    private readonly TradingDbContext _dbContext;
+    private readonly ISourceStatusRepository _statusRepository;
+    private readonly ITickRepository _tickRepository;
 
-    public MonitoringController(TradingDbContext dbContext)
+    public MonitoringController(
+        ISourceStatusRepository statusRepository,
+        ITickRepository tickRepository)
     {
-        _dbContext = dbContext;
+        _statusRepository = statusRepository;
+        _tickRepository = tickRepository;
     }
 
     [HttpGet("report")]
-    public async Task<IActionResult> GetPerformanceReport()
+    public async Task<IActionResult> GetPerformanceReport(CancellationToken ct)
     {
-        var sources = await _dbContext.SourceStatuses.AsNoTracking().ToListAsync();
+        var sources = await _statusRepository.GetAllAsync(ct);
+        var latestTickTime = await _tickRepository.GetLatestTickTimestampAsync(ct);
 
-        var latestTick = await _dbContext.Ticks
-            .OrderByDescending(t => t.Timestamp)
-            .Select(t => new { t.Timestamp, t.Source })
-            .FirstOrDefaultAsync();
-
-        var systemLag = latestTick != null
-            ? (DateTimeOffset.UtcNow - latestTick.Timestamp).TotalMilliseconds
+        var systemLag = latestTickTime.HasValue
+            ? (DateTimeOffset.UtcNow - latestTickTime.Value).TotalMilliseconds
             : 0;
 
         var report = new

@@ -20,6 +20,7 @@ public static class ServiceCollectionExtensions
 
         services.AddScoped<ITickRepository, TickRepository>();
         services.AddScoped<ICandleRepository, CandleRepository>();
+        services.AddScoped<ISourceStatusRepository, SourceStatusRepository>();
 
         services.AddScoped<IUnitOfWork, EfUnitOfWork>();
 

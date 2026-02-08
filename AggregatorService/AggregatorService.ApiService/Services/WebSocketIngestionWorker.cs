@@ -1,5 +1,5 @@
-﻿using AggregatorService.ApiService.Data;
-using AggregatorService.ApiService.Domain;
+﻿using AggregatorService.ApiService.Application.Common;
+using AggregatorService.ApiService.Application.Interfaces;
 using AggregatorService.ServiceDefaults;
 using System.Net.WebSockets;
 using System.Text;

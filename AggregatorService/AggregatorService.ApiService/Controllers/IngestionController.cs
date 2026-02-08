@@ -1,5 +1,5 @@
-﻿using AggregatorService.ApiService.Data;
-using AggregatorService.ApiService.Services;
+﻿using AggregatorService.ApiService.Application.Common;
+using AggregatorService.ApiService.Application.DTOs;
 using AggregatorService.ServiceDefaults;
 using Microsoft.AspNetCore.Mvc;
 
@@ -19,10 +19,14 @@ public class IngestionController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<IActionResult> Ingest([FromBody] Tick tick)
+    public async Task<IActionResult> Ingest([FromBody] TickDto dto)
     {
+        var tick = TickMapper.ToDomain(dto);
         await _channel.WriteAsync(tick);
-        _metrics.TicksReceived.Add(1, new KeyValuePair<string, object?>("source", tick.Source));
+        _metrics.TicksReceived.Add(1,
+                new KeyValuePair<string, object?>("source", dto.Source),
+                new KeyValuePair<string, object?>("symbol", dto.Symbol)
+            );
         return Accepted();
     }
 }

@@ -20,15 +20,22 @@ public class CandleAggregator
             var key = $"{tick.Symbol.Value}_{period.TotalMinutes}";
             if (!_builders.TryGetValue(key, out var builder))
             {
-                builder = new CandleBuilder(tick.Symbol, period, tick.Timestamp);
+                var bucketTime = new DateTimeOffset(
+                    tick.Timestamp.Year, tick.Timestamp.Month, tick.Timestamp.Day,
+                    tick.Timestamp.Hour, tick.Timestamp.Minute, 0, TimeSpan.Zero);
+
+                builder = new CandleBuilder(tick.Symbol, bucketTime, period);
                 _builders[key] = builder;
             }
-
-            // Logic to check if candle is closed
+            
             if (builder.IsFinished(tick.Timestamp))
             {
+                var bucketTime = new DateTimeOffset(
+                    tick.Timestamp.Year, tick.Timestamp.Month, tick.Timestamp.Day,
+                    tick.Timestamp.Hour, tick.Timestamp.Minute, 0, TimeSpan.Zero);
+
                 closedCandles.Add(builder.Build());
-                _builders[key] = new CandleBuilder(tick.Symbol, period, tick.Timestamp);
+                _builders[key] = new CandleBuilder(tick.Symbol, bucketTime, period);
                 _builders[key].AddTick(tick);
             }
             else

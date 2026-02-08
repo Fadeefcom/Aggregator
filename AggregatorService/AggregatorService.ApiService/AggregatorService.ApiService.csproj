@@ -10,4 +10,11 @@
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\AggregatorService.ApiService.Application\AggregatorService.ApiService.Application.csproj" />
+    <ProjectReference Include="..\AggregatorService.ApiService.Domain\AggregatorService.ApiService.Domain.csproj" />
+    <ProjectReference Include="..\AggregatorService.ApiService.Infrastructure\AggregatorService.ApiService.Infrastructure.csproj" />
+    <ProjectReference Include="..\AggregatorService.ServiceDefaults\AggregatorService.ServiceDefaults.csproj" />
+  </ItemGroup>
+
 </Project>

@@ -1,7 +1,7 @@
-﻿using AggregatorService.ApiService.Data;
+﻿using AggregatorService.ApiService.Domain.Models;
 using System.Threading.Channels;
 
-namespace AggregatorService.ApiService.Services;
+namespace AggregatorService.ApiService.Application.Common;
 
 public class IngestionChannel
 {

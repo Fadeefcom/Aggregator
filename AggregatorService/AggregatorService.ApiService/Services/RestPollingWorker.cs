@@ -1,4 +1,4 @@
-﻿using AggregatorService.ApiService.Data;
+﻿using AggregatorService.ApiService.Application.Common;
 using AggregatorService.ServiceDefaults;
 
 namespace AggregatorService.ApiService.Services;

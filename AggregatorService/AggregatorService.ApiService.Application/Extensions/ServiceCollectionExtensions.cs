@@ -1,5 +1,4 @@
 ﻿using AggregatorService.ApiService.Application.Interfaces;
-using AggregatorService.ApiService.Application.Services;
 using AggregatorService.ApiService.Domain.Services;
 using AggregatorService.Application.Services;
 using Microsoft.Extensions.DependencyInjection;

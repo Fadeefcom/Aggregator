@@ -2,7 +2,6 @@
 using AggregatorService.ApiService.Domain.Interfaces;
 using AggregatorService.ApiService.Domain.Models;
 using AggregatorService.ApiService.Domain.Services;
-using AggregatorService.ApiService.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
@@ -14,9 +13,9 @@ public class TickIngestionService : ITickIngestionService
     private readonly ITickRepository _tickRepository;
     private readonly ICandleRepository _candleRepository;
     private readonly ITickDeduplicator _deduplicator;
-    private readonly CandleAggregatorService _aggregatorService; // Singleton
-    private readonly IAlertService _alertService; // Singleton
-    private readonly ISourceStatusService _sourceStatusService; // Singleton
+    private readonly CandleAggregatorService _aggregatorService;
+    private readonly IAlertService _alertService;
+    private readonly ISourceStatusService _sourceStatusService;
     private readonly IMetricsService _metrics;
     private readonly IUnitOfWork _unitOfWork;
     private readonly ILogger<TickIngestionService> _logger;

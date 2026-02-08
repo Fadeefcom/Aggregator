@@ -1,21 +1,7 @@
-﻿using System.Threading.Channels;
-using AggregatorService.ApiService.Domain.Alerts;
+﻿using AggregatorService.ApiService.Application.Common;
+using AggregatorService.ApiService.Application.Interfaces;
 
 namespace AggregatorService.ApiService.Services;
-
-public class AlertChannel
-{
-    private readonly Channel<Alert> _channel;
-
-    public AlertChannel()
-    {
-        _channel = Channel.CreateUnbounded<Alert>();
-    }
-
-    public void Publish(Alert alert) => _channel.Writer.TryWrite(alert);
-    public ChannelReader<Alert> Reader => _channel.Reader;
-}
-
 
 public class AlertNotificationWorker : BackgroundService
 {

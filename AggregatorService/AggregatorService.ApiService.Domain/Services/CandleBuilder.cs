@@ -3,11 +3,13 @@ using AggregatorService.ApiService.Domain.ValueObjects;
 
 namespace AggregatorService.ApiService.Domain.Services;
 
-internal class CandleBuilder
+public class CandleBuilder
 {
     public Symbol Symbol { get; }
     public DateTimeOffset OpenTime { get; }
     public TimeSpan Period { get; }
+    public decimal Open => _open;
+    public decimal Close => _close;
 
     private decimal _open;
     private decimal _high;
@@ -81,6 +83,26 @@ internal class CandleBuilder
             _volume,
             avgPrice,
             (decimal)volatility
+        );
+    }
+
+    public Candle ToCandle()
+    {
+        var averagePrice = (Open + _high + _low + Close) / 4;
+        var volatility = _high - _low;
+
+        return new Candle(
+            Symbol,
+            OpenTime,
+            OpenTime.Add(Period),
+            Period,
+            Open,
+            _high,
+            _low,
+            Close,
+            _volume,
+            averagePrice,
+            volatility
         );
     }
 }

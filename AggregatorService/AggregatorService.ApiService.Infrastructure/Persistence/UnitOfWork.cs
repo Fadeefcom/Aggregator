@@ -1,11 +1,7 @@
 ﻿using AggregatorService.ApiService.Data;
+using AggregatorService.ApiService.Domain.Interfaces;
 
 namespace AggregatorService.ApiService.Infrastructure.Persistence;
-
-public interface IUnitOfWork
-{
-    Task SaveChangesAsync(CancellationToken ct = default);
-}
 
 public class EfUnitOfWork : IUnitOfWork
 {

@@ -1,43 +1,69 @@
-using AggregatorService.ApiService.Data;
-using AggregatorService.ApiService.Domain;
-using AggregatorService.ApiService.Domain.Alerts;
+﻿using AggregatorService.ApiService.Application.Common;
+using AggregatorService.ApiService.Application.Interfaces;
+using AggregatorService.ApiService.Application.Services;
+using AggregatorService.ApiService.Domain.Interfaces;
+using AggregatorService.ApiService.Infrastructure.Extensions;
+using AggregatorService.ApiService.Infrastructure.Services;
 using AggregatorService.ApiService.Services;
 using AggregatorService.ServiceDefaults;
-using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.HttpLogging;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-builder.Services.AddDbContext<TradingDbContext>(options =>
-    options.UseNpgsql(connectionString));
+builder.Services.AddHttpLogging(logging =>
+{
+    logging.LoggingFields = HttpLoggingFields.RequestPropertiesAndHeaders |
+                            HttpLoggingFields.ResponseStatusCode |
+                            HttpLoggingFields.Duration;
+    logging.RequestHeaders.Add("x-request-id");
+    logging.ResponseHeaders.Add("x-request-id");
+    logging.MediaTypeOptions.AddText("application/json");
+    logging.RequestBodyLogLimit = 4096;
+    logging.ResponseBodyLogLimit = 4096;
+});
 
-builder.Services.AddControllers();
+builder.Services.AddInfrastructure(builder.Configuration);
+
 builder.Services.AddSingleton<IngestionChannel>();
-builder.Services.AddMemoryCache();
-builder.Services.AddSingleton<TradingMetrics>();
-
 builder.Services.AddSingleton<AlertChannel>();
-builder.Services.AddSingleton<INotificationChannel, ConsoleNotificationChannel>();
-builder.Services.AddSingleton<INotificationChannel, FileNotificationChannel>();
-builder.Services.AddSingleton<INotificationChannel, EmailNotificationChannel>();
-builder.Services.AddHostedService<AlertNotificationWorker>();
-
+builder.Services.AddSingleton<TradingMetrics>();
 builder.Services.AddSingleton<ITickProcessor, TickProcessor>();
+
+builder.Services.AddScoped<INotificationChannel, ConsoleNotificationChannel>();
+builder.Services.AddScoped<INotificationChannel, EmailNotificationChannel>();
+builder.Services.AddScoped<INotificationChannel, FileNotificationChannel>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+
+builder.Services.AddHostedService<TickProcessingService>();
+builder.Services.AddHostedService<RestPollingWorker>();
+builder.Services.AddHostedService<WebSocketIngestionWorker>();
+builder.Services.AddHostedService<AlertNotificationWorker>();
 
 builder.Services.AddHttpClient("ExchangeClient", client =>
 {
     client.BaseAddress = new Uri("http://loadgenerator");
 });
 
-builder.Services.AddHostedService<TickProcessingService>();
-builder.Services.AddHostedService<RestPollingWorker>();
-builder.Services.AddHostedService<WebSocketIngestionWorker>();
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
 app.MapDefaultEndpoints();
+
+app.UseHttpLogging();
+
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+}
+
+app.UseHttpsRedirection();
+app.UseAuthorization();
+
 app.MapControllers();
 
 app.Run();

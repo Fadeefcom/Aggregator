@@ -34,4 +34,12 @@ public class SourceStatus
         IsOnline = true;
         LastError = null;
     }
+
+    public void SyncStateFrom(SourceStatus other)
+    {
+        IsOnline = other.IsOnline;
+        LastUpdate = other.LastUpdate;
+        TicksCount = other.TicksCount;
+        LastError = other.LastError;
+    }
 }

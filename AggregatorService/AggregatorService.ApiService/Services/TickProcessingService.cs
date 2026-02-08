@@ -1,5 +1,7 @@
-﻿using AggregatorService.ApiService.Data;
-using AggregatorService.ApiService.Domain;
+﻿using AggregatorService.ApiService.Application.Common;
+using AggregatorService.ApiService.Application.Interfaces;
+using AggregatorService.ApiService.Domain.Interfaces;
+using AggregatorService.ApiService.Domain.Models;
 using AggregatorService.ServiceDefaults;
 using System.Diagnostics;
 
@@ -11,9 +13,9 @@ public class TickProcessingService : BackgroundService
     private readonly ITickProcessor _processor;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TradingMetrics _metrics;
+    private readonly ILogger<TickProcessingService> _logger;
     private readonly int _batchSize;
     private readonly TimeSpan _statusSaveInterval;
-    private readonly ILogger<TickProcessingService> _logger;
 
     public TickProcessingService(
         IngestionChannel channel,
@@ -27,9 +29,9 @@ public class TickProcessingService : BackgroundService
         _processor = processor;
         _scopeFactory = scopeFactory;
         _metrics = metrics;
+        _logger = logger;
         _batchSize = configuration.GetValue<int>("AggregatorSettings:BatchSize", 1000);
         _statusSaveInterval = TimeSpan.FromSeconds(configuration.GetValue<int>("AggregatorSettings:StatusSaveIntervalSeconds", 5));
-        _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -123,6 +125,36 @@ public class TickProcessingService : BackgroundService
         }
     }
 
+    private async Task SaveDataAsync(List<Tick> ticks, List<Candle> candles, CancellationToken ct)
+    {
+        if (ticks.Count == 0 && candles.Count == 0) return;
+
+        var sw = Stopwatch.StartNew();
+
+        using var scope = _scopeFactory.CreateScope();
+
+        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+        var tickRepo = scope.ServiceProvider.GetRequiredService<ITickRepository>();
+        var candleRepo = scope.ServiceProvider.GetRequiredService<ICandleRepository>();
+
+        if (ticks.Count > 0)
+        {
+            await tickRepo.AddBatchAsync(ticks, ct);
+            ticks.Clear();
+        }
+
+        if (candles.Count > 0)
+        {
+            await candleRepo.AddBatchAsync(candles, ct);
+            candles.Clear();
+        }
+
+        await unitOfWork.SaveChangesAsync(ct);
+
+        sw.Stop();
+        _metrics.DbWriteDuration.Record(sw.Elapsed.TotalMilliseconds);
+    }
+
     private async Task TrySaveDataAsync(
         List<Tick> ticks,
         List<Candle> candles,
@@ -150,40 +182,12 @@ public class TickProcessingService : BackgroundService
         }
     }
 
-    private async Task SaveDataAsync(
-        List<Tick> ticks,
-        List<Candle> candles,
-        CancellationToken ct)
-    {
-        if (ticks.Count == 0 && candles.Count == 0) return;
-
-        var sw = Stopwatch.StartNew();
-
-        using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
-
-        if (ticks.Count > 0)
-        {
-            await db.Ticks.AddRangeAsync(ticks, ct);
-            ticks.Clear();
-        }
-
-        if (candles.Count > 0)
-        {
-            await db.Candles.AddRangeAsync(candles, ct);
-            candles.Clear();
-        }
-
-        await db.SaveChangesAsync(ct);
-
-        sw.Stop();
-        _metrics.DbWriteDuration.Record(sw.Elapsed.TotalMilliseconds);
-    }
-
     private async Task SaveStatusesAsync(CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
+
+        var statusRepo = scope.ServiceProvider.GetRequiredService<ISourceStatusRepository>();
+        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
         var sources = _processor.GetAllSourceStatuses().Select(s => s.SourceName).ToList();
 
@@ -200,23 +204,22 @@ public class TickProcessingService : BackgroundService
 
         foreach (var sourceName in sources)
         {
-            var status = _processor.GetSourceStatus(sourceName);
-            var dbStatus = await db.SourceStatuses.FindAsync(
-                new object[] { sourceName },
-                ct);
+            var memoryStatus = _processor.GetSourceStatus(sourceName);
+            var dbStatus = await statusRepo.GetByNameAsync(sourceName, ct);
 
             if (dbStatus == null)
             {
-                await db.SourceStatuses.AddAsync(status, ct);
+                var newEntity = new SourceStatus(sourceName);
+                newEntity.SyncStateFrom(memoryStatus);
+
+                await statusRepo.AddAsync(newEntity, ct);
             }
             else
             {
-                dbStatus.IsOnline = status.IsOnline;
-                dbStatus.LastUpdate = status.LastUpdate;
-                dbStatus.TicksCount = status.TicksCount;
+                dbStatus.SyncStateFrom(memoryStatus);
             }
         }
 
-        await db.SaveChangesAsync(ct);
+        await unitOfWork.SaveChangesAsync(ct);
     }
 }

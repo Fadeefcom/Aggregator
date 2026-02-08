@@ -9,3 +9,9 @@ AggregatorService/LoadGenerator/obj
 AggregatorService/AggregatorService.ApiService.Application/obj
 AggregatorService/AggregatorService.ApiService.Domain/obj
 AggregatorService/AggregatorService.ApiService.Infrastructure/obj
+AggregatorService/AggregatorService.AppHost/bin
+AggregatorService/AggregatorService.ServiceDefaults/bin
+AggregatorService/LoadGenerator/bin
+AggregatorService/AggregatorService.ApiService.Application/bin
+AggregatorService/AggregatorService.ApiService.Domain/bin
+AggregatorService/AggregatorService.ApiService.Infrastructure/bin

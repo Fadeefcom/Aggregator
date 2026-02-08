@@ -2,6 +2,7 @@
 using AggregatorService.ApiService.Domain.Interfaces;
 using AggregatorService.ApiService.Domain.Models;
 using AggregatorService.ApiService.Domain.ValueObjects;
+using Microsoft.EntityFrameworkCore;
 
 namespace AggregatorService.ApiService.Infrastructure.Persistence.Repositories;
 

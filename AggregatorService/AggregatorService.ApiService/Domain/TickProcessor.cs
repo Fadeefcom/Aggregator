@@ -1,10 +1,13 @@
-﻿using AggregatorService.ApiService.Data;
-using AggregatorService.ApiService.Domain.Alerts;
-using AggregatorService.ApiService.Services;
+﻿using AggregatorService.ApiService.Application.Common;
+using AggregatorService.ApiService.Application.Interfaces;
+using AggregatorService.ApiService.Domain.Models;
+using AggregatorService.ApiService.Domain.Rules;
+using AggregatorService.ApiService.Domain.Services;
+using AggregatorService.ApiService.Domain.ValueObjects;
 using Microsoft.Extensions.Caching.Memory;
 using System.Collections.Concurrent;
 
-namespace AggregatorService.ApiService.Domain;
+namespace AggregatorService.ApiService.Application.Services;
 
 public class TickProcessor : ITickProcessor
 {
@@ -31,7 +34,11 @@ public class TickProcessor : ITickProcessor
         TimeSpan.FromHours(1)
     };
 
-    public TickProcessor(IMemoryCache memoryCache, AlertChannel alertChannel, IConfiguration configuration, ILogger<TickProcessor> logger)
+    public TickProcessor(
+        IMemoryCache memoryCache,
+        AlertChannel alertChannel,
+        IConfiguration configuration,
+        ILogger<TickProcessor> logger)
     {
         _dedupCache = memoryCache;
         _alertChannel = alertChannel;
@@ -58,7 +65,7 @@ public class TickProcessor : ITickProcessor
                 var symbol = ruleConfig["Symbol"] ?? string.Empty;
                 var min = ruleConfig.GetValue<decimal>("MinPrice");
                 var max = ruleConfig.GetValue<decimal>("MaxPrice");
-                _alertRules.Add(new PriceThresholdRule(symbol, min, max));
+                _alertRules.Add(new PriceThresholdRule(Symbol.Create(symbol), min, max));
             }
             else if (string.Equals(type, "Volume", StringComparison.OrdinalIgnoreCase))
             {
@@ -72,22 +79,32 @@ public class TickProcessor : ITickProcessor
 
     public Tick Normalize(Tick tick)
     {
-        tick.Symbol = tick.Symbol.ToUpperInvariant();
-        tick.Timestamp = tick.Timestamp.ToUniversalTime();
+        if (tick.Timestamp.Offset != TimeSpan.Zero)
+        {
+            return new Tick(
+                tick.Symbol,
+                tick.Price,
+                tick.Volume,
+                tick.Timestamp.ToUniversalTime(),
+                tick.Source
+            );
+        }
+
         return tick;
     }
 
     public bool IsDuplicate(Tick tick)
     {
-        var key = $"{tick.Source}_{tick.Symbol}_{tick.Timestamp.ToUnixTimeMilliseconds()}_{tick.Price}";
+        var key = $"{tick.Source}_{tick.Symbol.Value}_{tick.Timestamp.ToUnixTimeMilliseconds()}_{tick.Price}";
         if (_dedupCache.TryGetValue(key, out _)) return true;
+
         _dedupCache.Set(key, true, TimeSpan.FromSeconds(10));
         return false;
     }
 
     public IEnumerable<Candle> UpdateMetricsAndAggregate(Tick tick)
     {
-        _lastTicks.TryGetValue(tick.Symbol, out var previousTick);
+        _lastTicks.TryGetValue(tick.Symbol.Value, out var previousTick);
 
         foreach (var rule in _alertRules)
         {
@@ -97,7 +114,7 @@ public class TickProcessor : ITickProcessor
             }
         }
 
-        _lastTicks[tick.Symbol] = tick;
+        _lastTicks[tick.Symbol.Value] = tick;
 
         UpdateSourceStatus(tick);
         return ProcessCandles(tick);
@@ -105,11 +122,7 @@ public class TickProcessor : ITickProcessor
 
     public SourceStatus GetSourceStatus(string source)
     {
-        return _sourceStatuses.GetOrAdd(source, s => new SourceStatus
-        {
-            SourceName = s,
-            IsOnline = true
-        });
+        return _sourceStatuses.GetOrAdd(source, s => new SourceStatus(s));
     }
 
     public IEnumerable<SourceStatus> GetAllSourceStatuses()
@@ -121,18 +134,15 @@ public class TickProcessor : ITickProcessor
     {
         _sourceStatuses.AddOrUpdate(
             tick.Source,
-            new SourceStatus
+            sourceName =>
             {
-                SourceName = tick.Source,
-                IsOnline = true,
-                LastUpdate = DateTimeOffset.UtcNow,
-                TicksCount = 1
+                var s = new SourceStatus(sourceName);
+                s.IncrementTickCount();
+                return s;
             },
             (key, current) =>
             {
-                current.IsOnline = true;
-                current.LastUpdate = DateTimeOffset.UtcNow;
-                current.TicksCount++;
+                current.IncrementTickCount();
                 return current;
             });
     }
@@ -143,9 +153,7 @@ public class TickProcessor : ITickProcessor
 
         foreach (var period in _timeFrames)
         {
-            var bucketTime = new DateTimeOffset(
-                tick.Timestamp.Year, tick.Timestamp.Month, tick.Timestamp.Day,
-                tick.Timestamp.Hour, tick.Timestamp.Minute, 0, TimeSpan.Zero);
+            DateTimeOffset bucketTime;
 
             if (period.TotalMinutes >= 60)
             {
@@ -160,31 +168,29 @@ public class TickProcessor : ITickProcessor
                     tick.Timestamp.Year, tick.Timestamp.Month, tick.Timestamp.Day,
                     tick.Timestamp.Hour, minute, 0, TimeSpan.Zero);
             }
-
-            var key = $"{tick.Symbol}_{period.TotalMinutes}";
-
-            var builder = _activeCandles.GetOrAdd(key, _ => new CandleBuilder
+            else
             {
-                Symbol = tick.Symbol,
-                OpenTime = bucketTime,
-                Period = period
-            });
+                bucketTime = new DateTimeOffset(
+                    tick.Timestamp.Year, tick.Timestamp.Month, tick.Timestamp.Day,
+                    tick.Timestamp.Hour, tick.Timestamp.Minute, 0, TimeSpan.Zero);
+            }
+
+            var key = $"{tick.Symbol.Value}_{period.TotalMinutes}";
+
+            var builder = _activeCandles.GetOrAdd(key, _ =>
+                new CandleBuilder(tick.Symbol, bucketTime, period));
 
             if (bucketTime > builder.OpenTime)
             {
                 var closedCandle = builder.ToCandle();
                 closedCandles.Add(closedCandle);
+
                 _logger.LogDebug("Candle closed: {Symbol} {Period} Open:{Open} Close:{Close}",
                     closedCandle.Symbol, closedCandle.Period, closedCandle.Open, closedCandle.Close);
 
-                var newBuilder = new CandleBuilder
-                {
-                    Symbol = tick.Symbol,
-                    OpenTime = bucketTime,
-                    Period = period
-                };
-
+                var newBuilder = new CandleBuilder(tick.Symbol, bucketTime, period);
                 newBuilder.AddTick(tick);
+
                 _activeCandles[key] = newBuilder;
             }
             else
@@ -194,78 +200,5 @@ public class TickProcessor : ITickProcessor
         }
 
         return closedCandles;
-    }
-
-    private class CandleBuilder
-    {
-        public string Symbol { get; set; } = string.Empty;
-        public DateTimeOffset OpenTime { get; set; }
-        public TimeSpan Period { get; set; }
-
-        public decimal Open { get; set; }
-        public decimal High { get; set; } = decimal.MinValue;
-        public decimal Low { get; set; } = decimal.MaxValue;
-        public decimal Close { get; set; }
-        public decimal Volume { get; set; }
-        private bool _isFirst = true;
-
-        private decimal _sumPrice;
-        private decimal _sumPriceSq;
-        private decimal _totalPV;
-        private int _count;
-
-        public void AddTick(Tick tick)
-        {
-            if (_isFirst)
-            {
-                Open = tick.Price;
-                _isFirst = false;
-            }
-
-            High = Math.Max(High, tick.Price);
-            Low = Math.Min(Low, tick.Price);
-            Close = tick.Price;
-            Volume += tick.Volume;
-
-            _sumPrice += tick.Price;
-            _sumPriceSq += tick.Price * tick.Price;
-            _totalPV += tick.Price * tick.Volume;
-            _count++;
-        }
-
-        public Candle ToCandle()
-        {
-            decimal avgPrice = 0;
-
-            if (Volume > 0)
-                avgPrice = _totalPV / Volume;
-            else if (_count > 0)
-                avgPrice = _sumPrice / _count;
-
-            double volatility = 0;
-
-            if (_count > 0)
-            {
-                double mean = (double)(_sumPrice / _count);
-                double meanSq = (double)(_sumPriceSq / _count);
-                double variance = Math.Max(0, meanSq - (mean * mean));
-                volatility = Math.Sqrt(variance);
-            }
-
-            return new Candle
-            {
-                Symbol = Symbol,
-                OpenTime = OpenTime,
-                CloseTime = OpenTime.Add(Period),
-                Period = Period,
-                Open = Open,
-                High = High,
-                Low = Low,
-                Close = Close,
-                TotalVolume = Volume,
-                AveragePrice = avgPrice,
-                Volatility = (decimal)volatility
-            };
-        }
     }
 }
