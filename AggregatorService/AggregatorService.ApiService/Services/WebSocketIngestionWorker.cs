@@ -13,7 +13,7 @@ public class WebSocketIngestionWorker : BackgroundService
     private readonly ITickProcessor _processor;
     private readonly TradingMetrics _metrics;
     private readonly ILogger<WebSocketIngestionWorker> _logger;
-    private readonly Uri _wsUri;
+    private readonly IConfiguration _configuration;
 
     public WebSocketIngestionWorker(
         IngestionChannel channel,
@@ -26,20 +26,36 @@ public class WebSocketIngestionWorker : BackgroundService
         _processor = processor;
         _metrics = metrics;
         _logger = logger;
-        _wsUri = new Uri(configuration["AggregatorSettings:WebSocketUri"] ?? "ws://loadgenerator/ws/stream");
+        _configuration = configuration;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var sources = _configuration.GetSection("AggregatorSettings:Sources").Get<WebSocketSource[]>()
+            ?.Where(s => s.Type == "WS").ToArray();
+
+        if (sources == null || sources.Length == 0)
+        {
+            var uri = _configuration["AggregatorSettings:WebSocketUri"] ?? "ws://loadgenerator/ws/stream";
+            sources = new[] { new WebSocketSource { Name = "Default_WS", Url = uri } };
+        }
+
+        var tasks = sources.Select(source => RunSocketLoop(source, stoppingToken));
+        await Task.WhenAll(tasks);
+    }
+
+    private async Task RunSocketLoop(WebSocketSource source, CancellationToken stoppingToken)
+    {
         var buffer = new byte[1024 * 4];
+        var wsUri = new Uri(source.Url);
 
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
                 using var ws = new ClientWebSocket();
-                _logger.LogInformation("Connecting to WebSocket at {Uri}", _wsUri);
-                await ws.ConnectAsync(_wsUri, stoppingToken);
+                _logger.LogInformation("Connecting to WebSocket {Source} at {Uri}", source.Name, wsUri);
+                await ws.ConnectAsync(wsUri, stoppingToken);
 
                 while (ws.State == WebSocketState.Open && !stoppingToken.IsCancellationRequested)
                 {
@@ -51,16 +67,24 @@ public class WebSocketIngestionWorker : BackgroundService
 
                     if (rawTick != null)
                     {
+                        // Ensure source name matches config if needed, or trust the payload
                         await _channel.WriteAsync(rawTick, stoppingToken);
                         _metrics.TicksReceived.Add(1, new KeyValuePair<string, object?>("source", rawTick.Source));
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                _logger.LogError(ex, "WebSocket connection error");
+                _logger.LogError(ex, "WebSocket connection error for {Source}", source.Name);
                 await Task.Delay(5000, stoppingToken);
             }
         }
+    }
+
+    private class WebSocketSource
+    {
+        public string Name { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public string Url { get; set; } = string.Empty;
     }
 }

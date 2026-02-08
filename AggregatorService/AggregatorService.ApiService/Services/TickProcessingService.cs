@@ -101,6 +101,17 @@ public class TickProcessingService : BackgroundService
             using var shutdownCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             try
             {
+                while (_channel.Reader.TryRead(out var tick))
+                {
+                    if (!_processor.ShouldProcess(tick)) continue;
+                    tick = _processor.Normalize(tick);
+                    if (_processor.IsDuplicate(tick)) continue;
+
+                    tickBuffer.Add(tick);
+                    var closedCandles = _processor.UpdateMetricsAndAggregate(tick);
+                    candleBuffer.AddRange(closedCandles);
+                }
+
                 await TrySaveDataAsync(tickBuffer, candleBuffer, shutdownCts.Token);
                 await TrySaveStatusesAsync(shutdownCts.Token);
                 _logger.LogInformation("Flush completed successfully.");
