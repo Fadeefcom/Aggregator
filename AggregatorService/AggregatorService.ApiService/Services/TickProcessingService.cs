@@ -92,7 +92,7 @@ public class TickProcessingService : BackgroundService
         }
         catch (OperationCanceledException)
         {
-            // Normal shutdown
+            _logger.LogInformation("Normal shutdown.");
         }
         catch (Exception ex)
         {
