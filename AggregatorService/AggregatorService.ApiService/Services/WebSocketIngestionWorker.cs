@@ -44,15 +44,7 @@ public class WebSocketIngestionWorker : BackgroundService
 
                     if (rawTick != null)
                     {
-                        if (!_processor.ShouldProcess(rawTick)) continue;
-
-                        var tick = _processor.Normalize(rawTick);
-
-                        if (_processor.IsDuplicate(tick)) continue;
-
-                        _processor.AggregateMetrics(tick);
-
-                        await _channel.WriteAsync(tick, stoppingToken);
+                        await _channel.WriteAsync(rawTick, stoppingToken);
                     }
                 }
             }

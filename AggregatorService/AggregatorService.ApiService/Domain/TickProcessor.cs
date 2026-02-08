@@ -6,26 +6,26 @@ namespace AggregatorService.ApiService.Domain;
 
 public class TickProcessor : ITickProcessor
 {
-    private readonly ILogger<TickProcessor> _logger;
     private readonly IMemoryCache _dedupCache;
+
+    // State for Aggregation (OHLCV Builders)
+    // Key: Symbol -> TimeWindow -> CandleBuilder
+    private readonly ConcurrentDictionary<string, CandleBuilder> _activeCandles = new();
+
+    // State for Source Monitoring
+    private readonly ConcurrentDictionary<string, SourceStatus> _sourceStatuses = new();
 
     private readonly HashSet<string> _allowedSymbols = new(StringComparer.OrdinalIgnoreCase)
     {
         "BTCUSD", "ETHUSD", "SOLUSD"
     };
 
-    private readonly ConcurrentDictionary<string, InstrumentMetrics> _metrics = new();
-
-    public TickProcessor(ILogger<TickProcessor> logger, IMemoryCache memoryCache)
+    public TickProcessor(IMemoryCache memoryCache)
     {
-        _logger = logger;
         _dedupCache = memoryCache;
     }
 
-    public bool ShouldProcess(Tick tick)
-    {
-        return _allowedSymbols.Contains(tick.Symbol);
-    }
+    public bool ShouldProcess(Tick tick) => _allowedSymbols.Contains(tick.Symbol);
 
     public Tick Normalize(Tick tick)
     {
@@ -37,37 +37,118 @@ public class TickProcessor : ITickProcessor
     public bool IsDuplicate(Tick tick)
     {
         var key = $"{tick.Source}_{tick.Symbol}_{tick.Timestamp.ToUnixTimeMilliseconds()}_{tick.Price}";
-
-        if (_dedupCache.TryGetValue(key, out _))
-        {
-            return true;
-        }
-
+        if (_dedupCache.TryGetValue(key, out _)) return true;
         _dedupCache.Set(key, true, TimeSpan.FromSeconds(10));
         return false;
     }
 
-    public void AggregateMetrics(Tick tick)
+    // Returns a Candle if a time period just closed, otherwise null
+    public Candle? UpdateMetricsAndAggregate(Tick tick)
     {
-        _metrics.AddOrUpdate(tick.Symbol,
-            new InstrumentMetrics { Count = 1, SumPrice = tick.Price, MinPrice = tick.Price, MaxPrice = tick.Price },
-            (key, current) =>
-            {
-                current.Count++;
-                current.SumPrice += tick.Price;
-                current.MinPrice = Math.Min(current.MinPrice, tick.Price);
-                current.MaxPrice = Math.Max(current.MaxPrice, tick.Price);
-                return current;
-            });
-
+        UpdateSourceStatus(tick);
+        return ProcessCandle(tick);
     }
 
-    private class InstrumentMetrics
+    public SourceStatus GetSourceStatus(string source)
     {
-        public int Count { get; set; }
-        public decimal SumPrice { get; set; }
-        public decimal MinPrice { get; set; }
-        public decimal MaxPrice { get; set; }
-        public decimal AveragePrice => Count == 0 ? 0 : SumPrice / Count;
+        return _sourceStatuses.GetOrAdd(source, s => new SourceStatus { SourceName = s, IsOnline = true });
+    }
+
+    private void UpdateSourceStatus(Tick tick)
+    {
+        _sourceStatuses.AddOrUpdate(tick.Source,
+            new SourceStatus
+            {
+                SourceName = tick.Source,
+                IsOnline = true,
+                LastUpdate = DateTimeOffset.UtcNow,
+                TicksCount = 1
+            },
+            (key, current) =>
+            {
+                current.IsOnline = true;
+                current.LastUpdate = DateTimeOffset.UtcNow;
+                current.TicksCount++;
+                return current;
+            });
+    }
+
+    private Candle? ProcessCandle(Tick tick)
+    {
+        // Simple 1-minute aggregation logic
+        // We define the "Bucket" by rounding down to the nearest minute
+        var bucketTime = new DateTimeOffset(
+            tick.Timestamp.Year, tick.Timestamp.Month, tick.Timestamp.Day,
+            tick.Timestamp.Hour, tick.Timestamp.Minute, 0, TimeSpan.Zero);
+
+        var key = $"{tick.Symbol}_1m";
+
+        var builder = _activeCandles.GetOrAdd(key, _ => new CandleBuilder
+        {
+            Symbol = tick.Symbol,
+            OpenTime = bucketTime,
+            Period = TimeSpan.FromMinutes(1)
+        });
+
+        // If the tick belongs to a NEW minute, the previous candle is DONE.
+        if (bucketTime > builder.OpenTime)
+        {
+            var closedCandle = builder.ToCandle();
+
+            // Start new candle
+            var newBuilder = new CandleBuilder
+            {
+                Symbol = tick.Symbol,
+                OpenTime = bucketTime,
+                Period = TimeSpan.FromMinutes(1)
+            };
+            newBuilder.AddTick(tick);
+            _activeCandles[key] = newBuilder;
+
+            return closedCandle; // Return the closed candle to be saved
+        }
+
+        builder.AddTick(tick);
+        return null; // Candle not yet closed
+    }
+
+    private class CandleBuilder
+    {
+        public string Symbol { get; set; } = string.Empty;
+        public DateTimeOffset OpenTime { get; set; }
+        public TimeSpan Period { get; set; }
+
+        public decimal Open { get; set; }
+        public decimal High { get; set; } = decimal.MinValue;
+        public decimal Low { get; set; } = decimal.MaxValue;
+        public decimal Close { get; set; }
+        public decimal Volume { get; set; }
+        private bool _isFirst = true;
+
+        public void AddTick(Tick tick)
+        {
+            if (_isFirst)
+            {
+                Open = tick.Price;
+                _isFirst = false;
+            }
+            High = Math.Max(High, tick.Price);
+            Low = Math.Min(Low, tick.Price);
+            Close = tick.Price;
+            Volume += tick.Volume;
+        }
+
+        public Candle ToCandle() => new Candle
+        {
+            Symbol = Symbol,
+            OpenTime = OpenTime,
+            CloseTime = OpenTime.Add(Period),
+            Period = Period,
+            Open = Open,
+            High = High,
+            Low = Low,
+            Close = Close,
+            TotalVolume = Volume
+        };
     }
 }
