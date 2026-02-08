@@ -16,6 +16,7 @@ public class AlertChannel
     public ChannelReader<Alert> Reader => _channel.Reader;
 }
 
+
 public class AlertNotificationWorker : BackgroundService
 {
     private readonly AlertChannel _channel;
@@ -34,28 +35,39 @@ public class AlertNotificationWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        await foreach (var alert in _channel.Reader.ReadAllAsync(stoppingToken))
+        try
         {
-            try
+            await foreach (var alert in _channel.Reader.ReadAllAsync(stoppingToken))
             {
-                var tasks = _notificationChannels.Select(async c =>
+                try
                 {
-                    try
+                    var tasks = _notificationChannels.Select(async c =>
                     {
-                        await c.SendAsync(alert, stoppingToken);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Failed to send alert via {ChannelType}", c.GetType().Name);
-                    }
-                });
+                        try
+                        {
+                            await c.SendAsync(alert, stoppingToken);
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Failed to send alert via {ChannelType}", c.GetType().Name);
+                        }
+                    });
 
-                await Task.WhenAll(tasks);
+                    await Task.WhenAll(tasks);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to process alert for {Symbol}", alert.Symbol);
+                }
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to process alert for {Symbol}", alert.Symbol);
-            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected during shutdown
+        }
+        catch (Exception ex)
+        {
+            _logger.LogCritical(ex, "FATAL: AlertNotificationWorker crashed and stopped processing alerts.");
         }
     }
 }
