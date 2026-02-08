@@ -7,18 +7,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\AggregatorService.ApiService.Application\AggregatorService.ApiService.Application.csproj" />
+    <ProjectReference Include="..\AggregatorService.ApiService.Infrastructure\AggregatorService.ApiService.Infrastructure.csproj" />
     <ProjectReference Include="..\AggregatorService.ServiceDefaults\AggregatorService.ServiceDefaults.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.12" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Abstractions" Version="9.0.12" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.12">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
   </ItemGroup>
 
 </Project>

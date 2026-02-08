@@ -6,3 +6,6 @@ AggregatorService/AggregatorService.ServiceDefaults/obj
 AggregatorService/AggregatorService.Tests/bin
 AggregatorService/AggregatorService.Tests/obj
 AggregatorService/LoadGenerator/obj
+AggregatorService/AggregatorService.ApiService.Application/obj
+AggregatorService/AggregatorService.ApiService.Domain/obj
+AggregatorService/AggregatorService.ApiService.Infrastructure/obj

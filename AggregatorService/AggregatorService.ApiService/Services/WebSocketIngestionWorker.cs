@@ -67,7 +67,6 @@ public class WebSocketIngestionWorker : BackgroundService
 
                     if (rawTick != null)
                     {
-                        // Ensure source name matches config if needed, or trust the payload
                         await _channel.WriteAsync(rawTick, stoppingToken);
                         _metrics.TicksReceived.Add(1, new KeyValuePair<string, object?>("source", rawTick.Source));
                     }
