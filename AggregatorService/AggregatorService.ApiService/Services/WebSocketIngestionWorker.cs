@@ -1,5 +1,6 @@
 ﻿using AggregatorService.ApiService.Data;
 using AggregatorService.ApiService.Domain;
+using AggregatorService.ServiceDefaults;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -10,16 +11,19 @@ public class WebSocketIngestionWorker : BackgroundService
 {
     private readonly IngestionChannel _channel;
     private readonly ITickProcessor _processor;
+    private readonly TradingMetrics _metrics;
     private readonly ILogger<WebSocketIngestionWorker> _logger;
     private readonly Uri _wsUri = new("ws://loadgenerator/ws/stream");
 
     public WebSocketIngestionWorker(
         IngestionChannel channel,
         ITickProcessor processor,
+        TradingMetrics metrics,
         ILogger<WebSocketIngestionWorker> logger)
     {
         _channel = channel;
         _processor = processor;
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -45,6 +49,7 @@ public class WebSocketIngestionWorker : BackgroundService
                     if (rawTick != null)
                     {
                         await _channel.WriteAsync(rawTick, stoppingToken);
+                        _metrics.TicksReceived.Add(1, new KeyValuePair<string, object?>("source", rawTick.Source));
                     }
                 }
             }

@@ -67,6 +67,11 @@ public class TickProcessor : ITickProcessor
         return _sourceStatuses.GetOrAdd(source, s => new SourceStatus { SourceName = s, IsOnline = true });
     }
 
+    public IEnumerable<SourceStatus> GetAllSourceStatuses()
+    {
+        return _sourceStatuses.Values;
+    }
+
     private void UpdateSourceStatus(Tick tick)
     {
         _sourceStatuses.AddOrUpdate(tick.Source,

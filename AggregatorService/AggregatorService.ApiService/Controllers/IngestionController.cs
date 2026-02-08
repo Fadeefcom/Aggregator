@@ -1,7 +1,7 @@
 ﻿using AggregatorService.ApiService.Data;
 using AggregatorService.ApiService.Services;
+using AggregatorService.ServiceDefaults;
 using Microsoft.AspNetCore.Mvc;
-using System.Diagnostics.Metrics;
 
 namespace AggregatorService.ApiService.Controllers;
 
@@ -10,20 +10,19 @@ namespace AggregatorService.ApiService.Controllers;
 public class IngestionController : ControllerBase
 {
     private readonly IngestionChannel _channel;
-    private readonly Counter<long> _receivedCounter;
+    private readonly TradingMetrics _metrics;
 
-    public IngestionController(IngestionChannel channel, IMeterFactory meterFactory)
+    public IngestionController(IngestionChannel channel, TradingMetrics metrics)
     {
         _channel = channel;
-        var meter = meterFactory.Create("TradingSystem.Aggregator");
-        _receivedCounter = meter.CreateCounter<long>("ticks_received");
+        _metrics = metrics;
     }
 
     [HttpPost]
     public async Task<IActionResult> Ingest([FromBody] Tick tick)
     {
         await _channel.WriteAsync(tick);
-        _receivedCounter.Add(1);
+        _metrics.TicksReceived.Add(1, new KeyValuePair<string, object?>("source", tick.Source));
         return Accepted();
     }
 }

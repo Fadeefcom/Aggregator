@@ -7,8 +7,9 @@ public interface ITickProcessor
     bool ShouldProcess(Tick tick);
     Tick Normalize(Tick tick);
     bool IsDuplicate(Tick tick);
-
-    // Changed: Returns a closed candle if ready
     Candle? UpdateMetricsAndAggregate(Tick tick);
+
+    // Monitoring Methods
     SourceStatus GetSourceStatus(string source);
+    IEnumerable<SourceStatus> GetAllSourceStatuses(); // New method
 }

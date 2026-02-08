@@ -1,16 +1,16 @@
 ﻿using AggregatorService.ApiService.Data;
-using AggregatorService.ApiService.Domain; // Added
-using Microsoft.EntityFrameworkCore;
-using System.Diagnostics.Metrics;
+using AggregatorService.ApiService.Domain;
+using AggregatorService.ServiceDefaults;
+using System.Diagnostics;
 
 namespace AggregatorService.ApiService.Services;
 
 public class TickProcessingService : BackgroundService
 {
     private readonly IngestionChannel _channel;
-    private readonly ITickProcessor _processor; // Added dependency
+    private readonly ITickProcessor _processor;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly Counter<long> _processedCounter;
+    private readonly TradingMetrics _metrics;
     private const int BatchSize = 1000;
     private readonly TimeSpan _statusSaveInterval = TimeSpan.FromSeconds(5);
 
@@ -18,13 +18,12 @@ public class TickProcessingService : BackgroundService
         IngestionChannel channel,
         ITickProcessor processor,
         IServiceScopeFactory scopeFactory,
-        IMeterFactory meterFactory)
+        TradingMetrics metrics)
     {
         _channel = channel;
         _processor = processor;
         _scopeFactory = scopeFactory;
-        var meter = meterFactory.Create("TradingSystem.Aggregator");
-        _processedCounter = meter.CreateCounter<long>("ticks_processed");
+        _metrics = metrics;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -37,34 +36,34 @@ public class TickProcessingService : BackgroundService
         {
             while (_channel.Reader.TryRead(out var tick))
             {
-                // 1. Centralized Processing Here (Moved from Workers)
-                // This ensures backpressure handles CPU load too
+                var latency = (DateTimeOffset.UtcNow - tick.Timestamp).TotalMilliseconds;
+                _metrics.ProcessingLatency.Record(latency, new KeyValuePair<string, object?>("source", tick.Source));
+
                 if (!_processor.ShouldProcess(tick)) continue;
                 tick = _processor.Normalize(tick);
                 if (_processor.IsDuplicate(tick)) continue;
 
-                // 2. Add to Raw Buffer
                 tickBuffer.Add(tick);
 
-                // 3. Update Aggregates & Check for Closed Candles
                 var closedCandle = _processor.UpdateMetricsAndAggregate(tick);
                 if (closedCandle != null)
                 {
                     candleBuffer.Add(closedCandle);
+                    _metrics.CandlesGenerated.Add(1, new KeyValuePair<string, object?>("symbol", closedCandle.Symbol));
                 }
 
-                // 4. Batch Save
+                _metrics.TicksProcessed.Add(1, new KeyValuePair<string, object?>("source", tick.Source));
+
                 if (tickBuffer.Count >= BatchSize)
                 {
                     await SaveDataAsync(tickBuffer, candleBuffer, stoppingToken);
                 }
             }
 
-            // Flush remaining or update status periodically
             if (tickBuffer.Count > 0 || candleBuffer.Count > 0 || DateTime.UtcNow - lastStatusSave > _statusSaveInterval)
             {
                 await SaveDataAsync(tickBuffer, candleBuffer, stoppingToken);
-                await SaveStatusesAsync(stoppingToken); // New: Save Status
+                await SaveStatusesAsync(stoppingToken);
                 lastStatusSave = DateTime.UtcNow;
             }
         }
@@ -74,13 +73,13 @@ public class TickProcessingService : BackgroundService
     {
         if (ticks.Count == 0 && candles.Count == 0) return;
 
+        var sw = Stopwatch.StartNew();
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
 
         if (ticks.Count > 0)
         {
             await db.Ticks.AddRangeAsync(ticks, ct);
-            _processedCounter.Add(ticks.Count);
             ticks.Clear();
         }
 
@@ -91,6 +90,8 @@ public class TickProcessingService : BackgroundService
         }
 
         await db.SaveChangesAsync(ct);
+        sw.Stop();
+        _metrics.DbWriteDuration.Record(sw.Elapsed.TotalMilliseconds);
     }
 
     private async Task SaveStatusesAsync(CancellationToken ct)
@@ -98,8 +99,7 @@ public class TickProcessingService : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
 
-        // Upsert logic would be ideal here, simplified for EF Core
-        var sources = new[] { "REST_BINANCE", "WS_KRAKEN", "Exchange_0", "Exchange_1", "Exchange_2" }; // Known sources
+        var sources = new[] { "REST_BINANCE", "WS_KRAKEN", "Exchange_0", "Exchange_1", "Exchange_2" };
 
         foreach (var sourceName in sources)
         {

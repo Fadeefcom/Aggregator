@@ -1,4 +1,5 @@
 ﻿using AggregatorService.ApiService.Data;
+using AggregatorService.ServiceDefaults;
 
 namespace AggregatorService.ApiService.Services;
 
@@ -6,16 +7,19 @@ public class RestPollingWorker : BackgroundService
 {
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IngestionChannel _channel;
+    private readonly TradingMetrics _metrics;
     private readonly ILogger<RestPollingWorker> _logger;
     private readonly TimeSpan _pollInterval = TimeSpan.FromSeconds(1);
 
     public RestPollingWorker(
         IHttpClientFactory httpClientFactory,
         IngestionChannel channel,
+        TradingMetrics metrics,
         ILogger<RestPollingWorker> logger)
     {
         _httpClientFactory = httpClientFactory;
         _channel = channel;
+        _metrics = metrics;
         _logger = logger;
     }
 
@@ -33,6 +37,7 @@ public class RestPollingWorker : BackgroundService
                 if (tick != null)
                 {
                     await _channel.WriteAsync(tick, stoppingToken);
+                    _metrics.TicksReceived.Add(1, new KeyValuePair<string, object?>("source", tick.Source));
                 }
             }
             catch (Exception ex)
