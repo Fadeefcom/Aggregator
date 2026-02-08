@@ -11,24 +11,30 @@ public class TickProcessingService : BackgroundService
     private readonly ITickProcessor _processor;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly TradingMetrics _metrics;
-    private const int BatchSize = 1000;
-    private readonly TimeSpan _statusSaveInterval = TimeSpan.FromSeconds(5);
+    private readonly int _batchSize;
+    private readonly TimeSpan _statusSaveInterval;
+    private readonly ILogger<TickProcessingService> _logger;
 
     public TickProcessingService(
         IngestionChannel channel,
         ITickProcessor processor,
         IServiceScopeFactory scopeFactory,
-        TradingMetrics metrics)
+        TradingMetrics metrics,
+        IConfiguration configuration,
+        ILogger<TickProcessingService> logger)
     {
         _channel = channel;
         _processor = processor;
         _scopeFactory = scopeFactory;
         _metrics = metrics;
+        _batchSize = configuration.GetValue<int>("AggregatorSettings:BatchSize", 1000);
+        _statusSaveInterval = TimeSpan.FromSeconds(configuration.GetValue<int>("AggregatorSettings:StatusSaveIntervalSeconds", 5));
+        _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var tickBuffer = new List<Tick>(BatchSize);
+        var tickBuffer = new List<Tick>(_batchSize);
         var candleBuffer = new List<Candle>();
         var lastStatusSave = DateTime.UtcNow;
 
@@ -62,9 +68,9 @@ public class TickProcessingService : BackgroundService
                     1,
                     new KeyValuePair<string, object?>("source", tick.Source));
 
-                if (tickBuffer.Count >= BatchSize)
+                if (tickBuffer.Count >= _batchSize)
                 {
-                    await SaveDataAsync(tickBuffer, candleBuffer, stoppingToken);
+                    await TrySaveDataAsync(tickBuffer, candleBuffer, stoppingToken);
                 }
             }
 
@@ -72,10 +78,37 @@ public class TickProcessingService : BackgroundService
                 candleBuffer.Count > 0 ||
                 DateTime.UtcNow - lastStatusSave > _statusSaveInterval)
             {
-                await SaveDataAsync(tickBuffer, candleBuffer, stoppingToken);
-                await SaveStatusesAsync(stoppingToken);
+                await TrySaveDataAsync(tickBuffer, candleBuffer, stoppingToken);
+                await TrySaveStatusesAsync(stoppingToken);
                 lastStatusSave = DateTime.UtcNow;
             }
+        }
+    }
+
+    private async Task TrySaveDataAsync(
+        List<Tick> ticks,
+        List<Candle> candles,
+        CancellationToken ct)
+    {
+        try
+        {
+            await SaveDataAsync(ticks, candles, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving data batch to DB");
+        }
+    }
+
+    private async Task TrySaveStatusesAsync(CancellationToken ct)
+    {
+        try
+        {
+            await SaveStatusesAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error saving source statuses to DB");
         }
     }
 

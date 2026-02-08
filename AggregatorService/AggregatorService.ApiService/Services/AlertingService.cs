@@ -38,7 +38,18 @@ public class AlertNotificationWorker : BackgroundService
         {
             try
             {
-                var tasks = _notificationChannels.Select(c => c.SendAsync(alert, stoppingToken));
+                var tasks = _notificationChannels.Select(async c =>
+                {
+                    try
+                    {
+                        await c.SendAsync(alert, stoppingToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to send alert via {ChannelType}", c.GetType().Name);
+                    }
+                });
+
                 await Task.WhenAll(tasks);
             }
             catch (Exception ex)

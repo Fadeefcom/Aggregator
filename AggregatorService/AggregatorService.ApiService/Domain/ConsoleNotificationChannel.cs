@@ -18,7 +18,12 @@ public class ConsoleNotificationChannel : INotificationChannel
 
 public class FileNotificationChannel : INotificationChannel
 {
-    private readonly string _filePath = "alerts.log";
+    private readonly string _filePath;
+
+    public FileNotificationChannel(IConfiguration configuration)
+    {
+        _filePath = configuration["AggregatorSettings:AlertFilePath"] ?? "alerts.log";
+    }
 
     public async Task SendAsync(Alert alert, CancellationToken ct)
     {

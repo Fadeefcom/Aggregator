@@ -13,18 +13,20 @@ public class WebSocketIngestionWorker : BackgroundService
     private readonly ITickProcessor _processor;
     private readonly TradingMetrics _metrics;
     private readonly ILogger<WebSocketIngestionWorker> _logger;
-    private readonly Uri _wsUri = new("ws://loadgenerator/ws/stream");
+    private readonly Uri _wsUri;
 
     public WebSocketIngestionWorker(
         IngestionChannel channel,
         ITickProcessor processor,
         TradingMetrics metrics,
-        ILogger<WebSocketIngestionWorker> logger)
+        ILogger<WebSocketIngestionWorker> logger,
+        IConfiguration configuration)
     {
         _channel = channel;
         _processor = processor;
         _metrics = metrics;
         _logger = logger;
+        _wsUri = new Uri(configuration["AggregatorSettings:WebSocketUri"] ?? "ws://loadgenerator/ws/stream");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -36,6 +38,7 @@ public class WebSocketIngestionWorker : BackgroundService
             try
             {
                 using var ws = new ClientWebSocket();
+                _logger.LogInformation("Connecting to WebSocket at {Uri}", _wsUri);
                 await ws.ConnectAsync(_wsUri, stoppingToken);
 
                 while (ws.State == WebSocketState.Open && !stoppingToken.IsCancellationRequested)
@@ -53,8 +56,9 @@ public class WebSocketIngestionWorker : BackgroundService
                     }
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                _logger.LogError(ex, "WebSocket connection error");
                 await Task.Delay(5000, stoppingToken);
             }
         }

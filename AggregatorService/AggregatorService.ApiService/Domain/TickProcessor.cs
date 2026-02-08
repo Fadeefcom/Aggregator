@@ -11,6 +11,7 @@ public class TickProcessor : ITickProcessor
     private readonly IMemoryCache _dedupCache;
     private readonly AlertChannel _alertChannel;
     private readonly IConfiguration _configuration;
+    private readonly ILogger<TickProcessor> _logger;
 
     private readonly ConcurrentDictionary<string, CandleBuilder> _activeCandles = new();
     private readonly ConcurrentDictionary<string, SourceStatus> _sourceStatuses = new();
@@ -30,11 +31,19 @@ public class TickProcessor : ITickProcessor
         TimeSpan.FromHours(1)
     };
 
-    public TickProcessor(IMemoryCache memoryCache, AlertChannel alertChannel, IConfiguration configuration)
+    public TickProcessor(IMemoryCache memoryCache, AlertChannel alertChannel, IConfiguration configuration, ILogger<TickProcessor> logger)
     {
         _dedupCache = memoryCache;
         _alertChannel = alertChannel;
         _configuration = configuration;
+        _logger = logger;
+
+        var configuredSymbols = configuration.GetSection("AggregatorSettings:AllowedSymbols").Get<string[]>();
+        if (configuredSymbols != null && configuredSymbols.Length > 0)
+        {
+            _allowedSymbols = new HashSet<string>(configuredSymbols, StringComparer.OrdinalIgnoreCase);
+        }
+
         InitializeRules();
     }
 
@@ -163,7 +172,10 @@ public class TickProcessor : ITickProcessor
 
             if (bucketTime > builder.OpenTime)
             {
-                closedCandles.Add(builder.ToCandle());
+                var closedCandle = builder.ToCandle();
+                closedCandles.Add(closedCandle);
+                _logger.LogDebug("Candle closed: {Symbol} {Period} Open:{Open} Close:{Close}",
+                    closedCandle.Symbol, closedCandle.Period, closedCandle.Open, closedCandle.Close);
 
                 var newBuilder = new CandleBuilder
                 {
