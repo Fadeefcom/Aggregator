@@ -1,4 +1,5 @@
 ﻿using AggregatorService.ApiService.Application.Common;
+using AggregatorService.ApiService.Domain.Models;
 using AggregatorService.ServiceDefaults;
 
 namespace AggregatorService.ApiService.Services;
