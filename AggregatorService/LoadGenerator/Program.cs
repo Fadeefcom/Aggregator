@@ -8,6 +8,7 @@ namespace LoadGenerator
 
             builder.AddServiceDefaults();
 
+            builder.Services.AddSingleton<LoadGenerator.Services.MarketSimulationService>();
             builder.Services.AddHttpClient("aggregator", client =>
             {
                 client.BaseAddress = new Uri("http://aggregator");
