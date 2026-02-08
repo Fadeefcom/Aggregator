@@ -1,4 +1,5 @@
 using AggregatorService.ApiService.Data;
+using AggregatorService.ApiService.Domain;
 using AggregatorService.ApiService.Services;
 using Microsoft.EntityFrameworkCore;
 
@@ -18,6 +19,8 @@ builder.Services.AddHttpClient("ExchangeClient", client =>
     client.BaseAddress = new Uri("http://loadgenerator");
 });
 
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<ITickProcessor, TickProcessor>();
 builder.Services.AddHostedService<TickProcessingService>();
 builder.Services.AddHostedService<RestPollingWorker>();
 builder.Services.AddHostedService<WebSocketIngestionWorker>();
