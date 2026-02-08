@@ -1,0 +1,8 @@
+﻿AggregatorService/.vs
+AggregatorService/AggregatorService.ApiService/obj
+AggregatorService/AggregatorService.ApiService/AggregatorService.ApiService.csproj.user
+AggregatorService/AggregatorService.AppHost/obj
+AggregatorService/AggregatorService.ServiceDefaults/obj
+AggregatorService/AggregatorService.Tests/bin
+AggregatorService/AggregatorService.Tests/obj
+AggregatorService/LoadGenerator/obj
