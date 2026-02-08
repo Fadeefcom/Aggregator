@@ -38,49 +38,76 @@ public class TickProcessingService : BackgroundService
         var candleBuffer = new List<Candle>();
         var lastStatusSave = DateTime.UtcNow;
 
-        while (await _channel.Reader.WaitToReadAsync(stoppingToken))
+        try
         {
-            while (_channel.Reader.TryRead(out var tick))
+            while (await _channel.Reader.WaitToReadAsync(stoppingToken))
             {
-                var latency = (DateTimeOffset.UtcNow - tick.Timestamp).TotalMilliseconds;
-                _metrics.ProcessingLatency.Record(
-                    latency,
-                    new KeyValuePair<string, object?>("source", tick.Source));
-
-                if (!_processor.ShouldProcess(tick)) continue;
-
-                tick = _processor.Normalize(tick);
-
-                if (_processor.IsDuplicate(tick)) continue;
-
-                tickBuffer.Add(tick);
-
-                var closedCandles = _processor.UpdateMetricsAndAggregate(tick);
-                foreach (var candle in closedCandles)
+                while (_channel.Reader.TryRead(out var tick))
                 {
-                    candleBuffer.Add(candle);
-                    _metrics.CandlesGenerated.Add(
+                    var latency = (DateTimeOffset.UtcNow - tick.Timestamp).TotalMilliseconds;
+                    _metrics.ProcessingLatency.Record(
+                        latency,
+                        new KeyValuePair<string, object?>("source", tick.Source));
+
+                    if (!_processor.ShouldProcess(tick)) continue;
+
+                    tick = _processor.Normalize(tick);
+
+                    if (_processor.IsDuplicate(tick)) continue;
+
+                    tickBuffer.Add(tick);
+
+                    var closedCandles = _processor.UpdateMetricsAndAggregate(tick);
+                    foreach (var candle in closedCandles)
+                    {
+                        candleBuffer.Add(candle);
+                        _metrics.CandlesGenerated.Add(
+                            1,
+                            new KeyValuePair<string, object?>("symbol", candle.Symbol));
+                    }
+
+                    _metrics.TicksProcessed.Add(
                         1,
-                        new KeyValuePair<string, object?>("symbol", candle.Symbol));
+                        new KeyValuePair<string, object?>("source", tick.Source));
+
+                    if (tickBuffer.Count >= _batchSize)
+                    {
+                        await TrySaveDataAsync(tickBuffer, candleBuffer, stoppingToken);
+                    }
                 }
 
-                _metrics.TicksProcessed.Add(
-                    1,
-                    new KeyValuePair<string, object?>("source", tick.Source));
-
-                if (tickBuffer.Count >= _batchSize)
+                if (tickBuffer.Count > 0 ||
+                    candleBuffer.Count > 0 ||
+                    DateTime.UtcNow - lastStatusSave > _statusSaveInterval)
                 {
                     await TrySaveDataAsync(tickBuffer, candleBuffer, stoppingToken);
+                    await TrySaveStatusesAsync(stoppingToken);
+                    lastStatusSave = DateTime.UtcNow;
                 }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown
+        }
+        catch (Exception ex)
+        {
+            _logger.LogCritical(ex, "TickProcessingService loop failed");
+        }
+        finally
+        {
+            _logger.LogInformation("Graceful shutdown: flushing {TickCount} ticks and {CandleCount} candles...", tickBuffer.Count, candleBuffer.Count);
 
-            if (tickBuffer.Count > 0 ||
-                candleBuffer.Count > 0 ||
-                DateTime.UtcNow - lastStatusSave > _statusSaveInterval)
+            using var shutdownCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            try
             {
-                await TrySaveDataAsync(tickBuffer, candleBuffer, stoppingToken);
-                await TrySaveStatusesAsync(stoppingToken);
-                lastStatusSave = DateTime.UtcNow;
+                await TrySaveDataAsync(tickBuffer, candleBuffer, shutdownCts.Token);
+                await TrySaveStatusesAsync(shutdownCts.Token);
+                _logger.LogInformation("Flush completed successfully.");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to flush data during shutdown");
             }
         }
     }
@@ -147,14 +174,18 @@ public class TickProcessingService : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<TradingDbContext>();
 
-        var sources = new[]
+        var sources = _processor.GetAllSourceStatuses().Select(s => s.SourceName).ToList();
+
+        if (sources.Count == 0)
         {
+            sources = new List<string> {
             "REST_BINANCE",
             "WS_KRAKEN",
             "Exchange_0",
             "Exchange_1",
             "Exchange_2"
-        };
+            };
+        }
 
         foreach (var sourceName in sources)
         {
