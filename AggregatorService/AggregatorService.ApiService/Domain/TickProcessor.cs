@@ -1,4 +1,6 @@
 ﻿using AggregatorService.ApiService.Data;
+using AggregatorService.ApiService.Domain.Alerts;
+using AggregatorService.ApiService.Services;
 using Microsoft.Extensions.Caching.Memory;
 using System.Collections.Concurrent;
 
@@ -7,6 +9,7 @@ namespace AggregatorService.ApiService.Domain;
 public class TickProcessor : ITickProcessor
 {
     private readonly IMemoryCache _dedupCache;
+    private readonly AlertChannel _alertChannel;
 
     // State for Aggregation (OHLCV Builders)
     // Key: Symbol -> TimeWindow -> CandleBuilder
@@ -14,6 +17,8 @@ public class TickProcessor : ITickProcessor
 
     // State for Source Monitoring
     private readonly ConcurrentDictionary<string, SourceStatus> _sourceStatuses = new();
+
+    private readonly List<IAlertRule> _alertRules = new();
 
     private readonly HashSet<string> _allowedSymbols = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -23,6 +28,14 @@ public class TickProcessor : ITickProcessor
     public TickProcessor(IMemoryCache memoryCache)
     {
         _dedupCache = memoryCache;
+        InitializeRules();
+    }
+
+    private void InitializeRules()
+    {
+        // Configuration: These could be loaded from DB/Config
+        _alertRules.Add(new PriceThresholdRule("BTCUSD", minPrice: 55000, maxPrice: 65000));
+        _alertRules.Add(new VolumeSpikeRule(multiplier: 3.0m)); // Alert if volume is 3x previous
     }
 
     public bool ShouldProcess(Tick tick) => _allowedSymbols.Contains(tick.Symbol);
