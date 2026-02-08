@@ -13,6 +13,7 @@ public class TickProcessor : ITickProcessor
 
     private readonly ConcurrentDictionary<string, CandleBuilder> _activeCandles = new();
     private readonly ConcurrentDictionary<string, SourceStatus> _sourceStatuses = new();
+    private readonly ConcurrentDictionary<string, Tick> _lastTicks = new();
 
     private readonly List<IAlertRule> _alertRules = new();
 
@@ -21,9 +22,10 @@ public class TickProcessor : ITickProcessor
         "BTCUSD", "ETHUSD", "SOLUSD"
     };
 
-    public TickProcessor(IMemoryCache memoryCache)
+    public TickProcessor(IMemoryCache memoryCache, AlertChannel alertChannel)
     {
         _dedupCache = memoryCache;
+        _alertChannel = alertChannel;
         InitializeRules();
     }
 
@@ -51,6 +53,17 @@ public class TickProcessor : ITickProcessor
     }
     public Candle? UpdateMetricsAndAggregate(Tick tick)
     {
+        _lastTicks.TryGetValue(tick.Symbol, out var previousTick);
+
+        foreach (var rule in _alertRules)
+        {
+            if (rule.Evaluate(tick, previousTick, out var reason))
+            {
+                _alertChannel.Publish(new Alert(tick.Symbol, reason, tick.Timestamp, "Warning"));
+            }
+        }
+        _lastTicks[tick.Symbol] = tick;
+
         UpdateSourceStatus(tick);
         return ProcessCandle(tick);
     }
