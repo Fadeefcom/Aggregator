@@ -13,8 +13,6 @@ namespace LoadGenerator
                 client.BaseAddress = new Uri("http://aggregator");
             });
 
-            builder.Services.AddHostedService<Worker>();
-
             var host = builder.Build();
 
             host.Run();

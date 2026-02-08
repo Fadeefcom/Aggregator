@@ -1,9 +1,7 @@
 ﻿using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
 
 namespace AggregatorService.ApiService.Data;
 
-// 1. Raw Data (Existing)
 public class Tick
 {
     public Guid Id { get; set; }
@@ -14,7 +12,6 @@ public class Tick
     [MaxLength(50)] public string Source { get; set; } = string.Empty;
 }
 
-// 2. Aggregated Data (New: OHLCV)
 public class Candle
 {
     public Guid Id { get; set; }
@@ -22,7 +19,6 @@ public class Candle
     public DateTimeOffset OpenTime { get; set; }
     public DateTimeOffset CloseTime { get; set; }
 
-    // Aggregation Window (1min, 5min, 1h)
     public TimeSpan Period { get; set; }
 
     public decimal Open { get; set; }
@@ -30,24 +26,24 @@ public class Candle
     public decimal Low { get; set; }
     public decimal Close { get; set; }
     public decimal TotalVolume { get; set; }
+    public decimal AveragePrice { get; set; }
+    public decimal Volatility { get; set; }
 }
 
-// 3. Instrument Metadata (New)
 public class Instrument
 {
     [Key, MaxLength(20)]
     public string Symbol { get; set; } = string.Empty;
-    public string BaseCurrency { get; set; } = string.Empty; // e.g., BTC
-    public string QuoteCurrency { get; set; } = string.Empty; // e.g., USD
-    public string Type { get; set; } = "Crypto"; // Crypto, Forex, Stock
+    public string BaseCurrency { get; set; } = string.Empty;
+    public string QuoteCurrency { get; set; } = string.Empty;
+    public string Type { get; set; } = "Crypto";
     public bool IsActive { get; set; } = true;
 }
 
-// 4. Source Status (New)
 public class SourceStatus
 {
     [Key, MaxLength(50)]
-    public string SourceName { get; set; } = string.Empty; // e.g., "Binance_REST"
+    public string SourceName { get; set; } = string.Empty;
     public bool IsOnline { get; set; }
     public DateTimeOffset LastUpdate { get; set; }
     public long TicksCount { get; set; }

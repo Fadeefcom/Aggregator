@@ -11,11 +11,7 @@ public class TickProcessor : ITickProcessor
     private readonly IMemoryCache _dedupCache;
     private readonly AlertChannel _alertChannel;
 
-    // State for Aggregation (OHLCV Builders)
-    // Key: Symbol -> TimeWindow -> CandleBuilder
     private readonly ConcurrentDictionary<string, CandleBuilder> _activeCandles = new();
-
-    // State for Source Monitoring
     private readonly ConcurrentDictionary<string, SourceStatus> _sourceStatuses = new();
 
     private readonly List<IAlertRule> _alertRules = new();
@@ -33,9 +29,8 @@ public class TickProcessor : ITickProcessor
 
     private void InitializeRules()
     {
-        // Configuration: These could be loaded from DB/Config
         _alertRules.Add(new PriceThresholdRule("BTCUSD", minPrice: 55000, maxPrice: 65000));
-        _alertRules.Add(new VolumeSpikeRule(multiplier: 3.0m)); // Alert if volume is 3x previous
+        _alertRules.Add(new VolumeSpikeRule(multiplier: 3.0m));
     }
 
     public bool ShouldProcess(Tick tick) => _allowedSymbols.Contains(tick.Symbol);
@@ -54,8 +49,6 @@ public class TickProcessor : ITickProcessor
         _dedupCache.Set(key, true, TimeSpan.FromSeconds(10));
         return false;
     }
-
-    // Returns a Candle if a time period just closed, otherwise null
     public Candle? UpdateMetricsAndAggregate(Tick tick)
     {
         UpdateSourceStatus(tick);
@@ -93,8 +86,6 @@ public class TickProcessor : ITickProcessor
 
     private Candle? ProcessCandle(Tick tick)
     {
-        // Simple 1-minute aggregation logic
-        // We define the "Bucket" by rounding down to the nearest minute
         var bucketTime = new DateTimeOffset(
             tick.Timestamp.Year, tick.Timestamp.Month, tick.Timestamp.Day,
             tick.Timestamp.Hour, tick.Timestamp.Minute, 0, TimeSpan.Zero);
@@ -108,12 +99,10 @@ public class TickProcessor : ITickProcessor
             Period = TimeSpan.FromMinutes(1)
         });
 
-        // If the tick belongs to a NEW minute, the previous candle is DONE.
         if (bucketTime > builder.OpenTime)
         {
             var closedCandle = builder.ToCandle();
 
-            // Start new candle
             var newBuilder = new CandleBuilder
             {
                 Symbol = tick.Symbol,
@@ -123,11 +112,11 @@ public class TickProcessor : ITickProcessor
             newBuilder.AddTick(tick);
             _activeCandles[key] = newBuilder;
 
-            return closedCandle; // Return the closed candle to be saved
+            return closedCandle;
         }
 
         builder.AddTick(tick);
-        return null; // Candle not yet closed
+        return null;
     }
 
     private class CandleBuilder
@@ -143,6 +132,11 @@ public class TickProcessor : ITickProcessor
         public decimal Volume { get; set; }
         private bool _isFirst = true;
 
+        private decimal _sumPrice;
+        private decimal _sumPriceSq;
+        private decimal _totalPV;
+        private int _count;
+
         public void AddTick(Tick tick)
         {
             if (_isFirst)
@@ -154,19 +148,44 @@ public class TickProcessor : ITickProcessor
             Low = Math.Min(Low, tick.Price);
             Close = tick.Price;
             Volume += tick.Volume;
+
+            _sumPrice += tick.Price;
+            _sumPriceSq += tick.Price * tick.Price;
+            _totalPV += tick.Price * tick.Volume;
+            _count++;
         }
 
-        public Candle ToCandle() => new Candle
+        public Candle ToCandle()
         {
-            Symbol = Symbol,
-            OpenTime = OpenTime,
-            CloseTime = OpenTime.Add(Period),
-            Period = Period,
-            Open = Open,
-            High = High,
-            Low = Low,
-            Close = Close,
-            TotalVolume = Volume
-        };
+            decimal avgPrice = 0;
+            if (Volume > 0)
+                avgPrice = _totalPV / Volume;
+            else if (_count > 0)
+                avgPrice = _sumPrice / _count;
+
+            double volatility = 0;
+            if (_count > 0)
+            {
+                double mean = (double)(_sumPrice / _count);
+                double meanSq = (double)(_sumPriceSq / _count);
+                double variance = Math.Max(0, meanSq - (mean * mean));
+                volatility = Math.Sqrt(variance);
+            }
+
+            return new Candle
+            {
+                Symbol = Symbol,
+                OpenTime = OpenTime,
+                CloseTime = OpenTime.Add(Period),
+                Period = Period,
+                Open = Open,
+                High = High,
+                Low = Low,
+                Close = Close,
+                TotalVolume = Volume,
+                AveragePrice = avgPrice,
+                Volatility = (decimal)volatility
+            };
+        }
     }
 }
