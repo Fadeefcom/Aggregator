@@ -18,10 +18,8 @@ public class MonitoringController : ControllerBase
     [HttpGet("report")]
     public async Task<IActionResult> GetPerformanceReport()
     {
-        // 1. Source Statistics
         var sources = await _dbContext.SourceStatuses.AsNoTracking().ToListAsync();
 
-        // 2. Data Latency (Approximation via latest tick)
         var latestTick = await _dbContext.Ticks
             .OrderByDescending(t => t.Timestamp)
             .Select(t => new { t.Timestamp, t.Source })
@@ -31,7 +29,6 @@ public class MonitoringController : ControllerBase
             ? (DateTimeOffset.UtcNow - latestTick.Timestamp).TotalMilliseconds
             : 0;
 
-        // 3. System Summary
         var report = new
         {
             GeneratedAt = DateTimeOffset.UtcNow,

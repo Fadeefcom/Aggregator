@@ -3,21 +3,19 @@ using AggregatorService.ApiService.Domain.Alerts;
 
 namespace AggregatorService.ApiService.Services;
 
-// The buffer class
 public class AlertChannel
 {
     private readonly Channel<Alert> _channel;
 
     public AlertChannel()
     {
-        _channel = Channel.CreateUnbounded<Alert>(); // Alerts are critical, we don't drop them usually
+        _channel = Channel.CreateUnbounded<Alert>();
     }
 
     public void Publish(Alert alert) => _channel.Writer.TryWrite(alert);
     public ChannelReader<Alert> Reader => _channel.Reader;
 }
 
-// The background worker
 public class AlertNotificationWorker : BackgroundService
 {
     private readonly AlertChannel _channel;
@@ -40,7 +38,6 @@ public class AlertNotificationWorker : BackgroundService
         {
             try
             {
-                // Fan-out to all channels in parallel
                 var tasks = _notificationChannels.Select(c => c.SendAsync(alert, stoppingToken));
                 await Task.WhenAll(tasks);
             }

@@ -38,7 +38,6 @@ public class EmailNotificationChannel : INotificationChannel
 
     public Task SendAsync(Alert alert, CancellationToken ct)
     {
-        // Stub: In production, use SmtpClient or SendGrid
         _logger.LogInformation("[EMAIL STUB] To: admin@trading.com, Subject: Alert {Symbol}, Body: {Message}", alert.Symbol, alert.Message);
         return Task.CompletedTask;
     }

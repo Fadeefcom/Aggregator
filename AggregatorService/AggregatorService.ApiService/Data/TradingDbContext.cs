@@ -13,14 +13,12 @@ public class TradingDbContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        // Optimize for Time-Series queries
         modelBuilder.Entity<Tick>()
             .HasIndex(t => new { t.Symbol, t.Timestamp });
 
         modelBuilder.Entity<Candle>()
             .HasIndex(c => new { c.Symbol, c.Period, c.OpenTime });
 
-        // Pre-seed known instruments
         modelBuilder.Entity<Instrument>().HasData(
             new Instrument { Symbol = "BTCUSD", BaseCurrency = "BTC", QuoteCurrency = "USD" },
             new Instrument { Symbol = "ETHUSD", BaseCurrency = "ETH", QuoteCurrency = "USD" },

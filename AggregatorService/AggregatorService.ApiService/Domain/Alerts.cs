@@ -4,19 +4,16 @@ using AggregatorService.ApiService.Data;
 
 public record Alert(string Symbol, string Message, DateTimeOffset Timestamp, string Severity);
 
-// Strategy Interface for Rules
 public interface IAlertRule
 {
     bool Evaluate(Tick tick, Tick? previousTick, out string failureReason);
 }
 
-// Strategy Interface for Notifications
 public interface INotificationChannel
 {
     Task SendAsync(Alert alert, CancellationToken ct);
 }
 
-// Rule Implementation: Price Threshold
 public class PriceThresholdRule : IAlertRule
 {
     private readonly string _symbol;
@@ -49,7 +46,6 @@ public class PriceThresholdRule : IAlertRule
     }
 }
 
-// Rule Implementation: Sharp Volume Change (e.g., > 200% of previous tick)
 public class VolumeSpikeRule : IAlertRule
 {
     private readonly decimal _multiplier;
