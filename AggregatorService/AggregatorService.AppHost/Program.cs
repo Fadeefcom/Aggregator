@@ -8,6 +8,7 @@ var loadGenerator = builder.AddProject<Projects.LoadGenerator>("loadgenerator");
 builder.AddProject<Projects.AggregatorService_ApiService>("apiservice")
     .WithReference(postgres)
     .WithReference(loadGenerator)
-    .WaitFor(loadGenerator);
+    .WaitFor(loadGenerator)
+    .WaitFor(postgres);
 
 builder.Build().Run();

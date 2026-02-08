@@ -65,7 +65,9 @@ public class TickProcessingService : BackgroundService
                         candleBuffer.Add(candle);
                         _metrics.CandlesGenerated.Add(
                             1,
-                            new KeyValuePair<string, object?>("symbol", candle.Symbol));
+                            new KeyValuePair<string, object?>("symbol", candle.Symbol),
+                            new KeyValuePair<string, object?>("source", tick.Source)
+                        );
                     }
 
                     _metrics.TicksProcessed.Add(

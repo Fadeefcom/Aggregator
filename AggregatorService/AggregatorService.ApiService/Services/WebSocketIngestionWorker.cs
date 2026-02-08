@@ -1,6 +1,8 @@
 ﻿using AggregatorService.ApiService.Application.Common;
+using AggregatorService.ApiService.Application.DTOs;
 using AggregatorService.ApiService.Application.Interfaces;
 using AggregatorService.ApiService.Domain.Models;
+using AggregatorService.ApiService.Domain.ValueObjects;
 using AggregatorService.ServiceDefaults;
 using System.Net.WebSockets;
 using System.Text;
@@ -15,6 +17,11 @@ public class WebSocketIngestionWorker : BackgroundService
     private readonly TradingMetrics _metrics;
     private readonly ILogger<WebSocketIngestionWorker> _logger;
     private readonly IConfiguration _configuration;
+
+    private readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     public WebSocketIngestionWorker(
         IngestionChannel channel,
@@ -64,11 +71,12 @@ public class WebSocketIngestionWorker : BackgroundService
                     if (result.MessageType == WebSocketMessageType.Close) break;
 
                     var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    var rawTick = JsonSerializer.Deserialize<Tick>(json);
+                    var rawTick = JsonSerializer.Deserialize<TickDto>(json, _jsonOptions);
 
                     if (rawTick != null)
                     {
-                        await _channel.WriteAsync(rawTick, stoppingToken);
+                        var tick = new Tick(Symbol.Create(rawTick.Symbol), rawTick.Price, rawTick.Volume, rawTick.Timestamp, rawTick.Source);
+                        await _channel.WriteAsync(tick, stoppingToken);
                         _metrics.TicksReceived.Add(1, new KeyValuePair<string, object?>("source", rawTick.Source));
                     }
                 }

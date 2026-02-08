@@ -87,7 +87,7 @@ public class ExchangeController : ControllerBase
             Price = (decimal)(basePrice + profile.BasePriceOffset + (decimal)(Random.Shared.NextDouble() * 100 - 50)),
             Volume = (decimal)Random.Shared.NextDouble() * 5,
             Timestamp = DateTimeOffset.UtcNow,
-            Source = profile.Name // Возвращаем имя биржи как Source
+            Source = profile.Name
         };
     }
 }

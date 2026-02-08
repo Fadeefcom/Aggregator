@@ -16,3 +16,4 @@ AggregatorService/AggregatorService.ApiService.Application/bin
 AggregatorService/AggregatorService.ApiService.Domain/bin
 AggregatorService/AggregatorService.ApiService.Infrastructure/bin
 AggregatorService/AggregatorService.ApiService/bin
+AggregatorService/AggregatorService.ApiService/alerts.log
